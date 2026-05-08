@@ -13,6 +13,10 @@ const ICON_URL = new URL('../public/icons/mikoshi.svg', import.meta.url).href;
 /** URL で ?mikoshiPreview=1 のとき true（表示ウィンドウをわずかに前倒し） */
 let previewUrlActive = false;
 
+/** プレビュー早送り: アンカーと倍率（本番は約55分なのでこれが無いとほぼ動いて見えない） */
+/** @type {{ anchorReal: number, anchorSched: number, speed: number } | null} */
+let previewClock = null;
+
 /** プレビュー時: 開始時刻の少し手前からルートを表示（秒）。通常運用では使わない */
 const PREVIEW_PREROLL_MS = 120_000;
 
@@ -45,6 +49,46 @@ function applyPreviewTimeShift(routeService) {
   }
 }
 
+/** プレビュー中は「スケジュール上のいま」（時刻の早送り・終了後はループ）。通常は実時刻。 */
+function scheduleNowMs() {
+  if (!previewUrlActive || !previewClock || !routeService) return Date.now();
+  const sched = routeService.getSchedule();
+  if (!sched.length) return Date.now();
+  const t0 = sched[0].tStart;
+  const t1 = sched[sched.length - 1].tEnd;
+  const span = t1 - t0;
+  let t =
+    previewClock.anchorSched +
+    (Date.now() - previewClock.anchorReal) * previewClock.speed;
+  if (span > 1 && t >= t1) {
+    t = t0 + ((t - t0) % span);
+  }
+  return t;
+}
+
+function initPreviewClock(routeServiceInstance) {
+  previewClock = null;
+  if (!previewUrlActive || !routeServiceInstance) return;
+  const sched = routeServiceInstance.getSchedule();
+  if (!sched.length) return;
+  const q = new URLSearchParams(window.location.search);
+  const sp = q.get('mikoshiSpeed');
+  const speed =
+    sp != null && sp !== ''
+      ? Math.max(1, Math.min(4000, Number(sp)))
+      : 120;
+  previewClock = {
+    anchorReal: Date.now(),
+    anchorSched: sched[0].tStart,
+    speed
+  };
+  console.info(
+    '[Mikoshi] プレビュー早送り',
+    speed,
+    '× 既定。速さは &mikoshiSpeed=（1〜4000）。本番当日は実時間。'
+  );
+}
+
 const SOURCE_ROUTE = 'mikoshi-route-line';
 const SOURCE_PROGRESS = 'mikoshi-route-progress';
 const SOURCE_CP = 'mikoshi-checkpoints';
@@ -65,12 +109,13 @@ const LAYER_IDS = [
   'mikoshi-layer-symbol'
 ];
 
-function isWithinScheduleWindow(nowMs) {
+function isWithinScheduleWindow() {
   if (!routeService) return false;
   const sched = routeService.getSchedule();
   if (!sched.length) return false;
   const t0 = sched[0].tStart;
   const t1 = sched[sched.length - 1].tEnd;
+  const nowMs = scheduleNowMs();
   const startGate = previewUrlActive ? t0 - PREVIEW_PREROLL_MS : t0;
   return nowMs >= startGate && nowMs <= t1;
 }
@@ -84,8 +129,7 @@ function userWantsLayer() {
 
 function applyCombinedVisibility() {
   if (!map) return;
-  const now = Date.now();
-  const show = isWithinScheduleWindow(now) && userWantsLayer();
+  const show = isWithinScheduleWindow() && userWantsLayer();
   const vis = show ? 'visible' : 'none';
   for (const id of LAYER_IDS) {
     if (map.getLayer(id)) {
@@ -129,8 +173,8 @@ function tick() {
   rafId = requestAnimationFrame(tick);
   if (!map || !routeService) return;
   applyCombinedVisibility();
-  const now = Date.now();
-  if (!isWithinScheduleWindow(now)) {
+  const now = scheduleNowMs();
+  if (!isWithinScheduleWindow()) {
     return;
   }
   const st = routeService.getState(now);
@@ -159,9 +203,10 @@ export async function attachToMainMap(mapboxMap) {
 
     routeService = new RouteService(segmentsFc, cpById);
     applyPreviewTimeShift(routeService);
+    initPreviewClock(routeService);
     const merged = routeService.getMergedRoute();
     const mergedFc = { type: 'FeatureCollection', features: [merged] };
-    const initial = routeService.getState();
+    const initial = routeService.getState(scheduleNowMs());
 
     if (!map.hasImage('mikoshi-icon')) {
       const canvas = await svgUrlToImageBitmap(ICON_URL, 128);

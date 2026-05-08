@@ -27,7 +27,7 @@ VS Code の **Live Server** で `index.html` を開いてもよい。
 | `mikoshi/index.html` | 神輿ルート単体デモ（Mapbox + Turf）。**メイン index でもレイヤーパネル「神輿ルート」から同じデータを表示可** — 手順は [mikoshi/README.md](mikoshi/README.md) |
 
 **神輿（メイン地図）**: レイヤーパネルで **「神輿ルート」ON** かつ **`checkpoints.geojson` の `arrival_time` で囲まれた時間帯内**のみ表示・移動します。日付が合わないときの動作確認は URL に  
-`?mikoshiPreview=1` を付ける（先頭通過を **今** に合わせてシフト。**数秒後**にしたいときだけ `mikoshiLeadSec=30` 等を追加）。
+`?mikoshiPreview=1` を付ける（先頭通過を **今** に合わせてシフト。**数秒後**にしたいときだけ `mikoshiLeadSec=30` 等を追加）。**プレビューだけ**スケジュール時刻を **約120倍**の速さで進めます（体感で進む。さらに速くは `mikoshiSpeed=300` など **1〜4000**）。**本番当日・プレビュー無し**のときは従来どおり実時間です。
 
 ---
 
