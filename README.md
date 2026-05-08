@@ -49,7 +49,8 @@ python -m http.server 8080
    - **`MAPBOX_PUBLIC_TOKEN`** … Mapbox 公開トークン `pk.*`  
    - **`GOOGLE_SHEET_ID`** … スプレッドシート ID（URL の `/d/` と `/edit` のあいだ）  
    - **`POSTS_SHEET`**（任意）… 既定は `posts`  
-3. `main` へ push すると `.github/workflows/pages.yml` が走り、**artifact として `web/` だけ**が公開される。ワークフロー内で **`web/secrets.local.js` をシークレットから生成**するため、ローカル用ファイルを Git に含めなくてよい。既定ブランチが `main` でない場合は `pages.yml` の `on.push.branches` を合わせる。
+3. `main` へ push すると `.github/workflows/pages.yml` が走り、**artifact として `web/` だけ**が公開される。Workflow 内で **`web/secrets.local.js` をシークレットから生成**するため、ローカル用ファイルを Git に含めなくてよい。既定ブランチが `main` でない場合は `pages.yml` の `on.push.branches` を合わせる。  
+4. デプロイで **Multiple artifacts named "github-pages"** となる場合は、リポジトリの **`.github/workflows/` に Pages 用の yml が二重**（例: GitHub が自動生成した `static.yml` と自作の `pages.yml`）にないか確認し、**`upload-pages-artifact` を実行するワークフローはひとつ**にする。
 
 ---
 
