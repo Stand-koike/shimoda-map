@@ -26,6 +26,9 @@ VS Code の **Live Server** で `index.html` を開いてもよい。
 | `gas-line-webhook.local.js` | 任意：ローカルに実値入りの全文を保存して GAS へ貼り付け用（**コミットしない**） |
 | `mikoshi/index.html` | 神輿ルート単体デモ（Mapbox + Turf）。**メイン index でもレイヤーパネル「神輿ルート」から同じデータを表示可** — 手順は [mikoshi/README.md](mikoshi/README.md) |
 
+**神輿（メイン地図）**: レイヤーパネルで **「神輿ルート」ON** かつ **`checkpoints.geojson` の `arrival_time` で囲まれた時間帯内**のみ表示・移動します。日付が合わないときの動作確認は URL に  
+`?mikoshiPreview=1` を付ける（先頭通過を **今** に合わせてシフト。**数秒後**にしたいときだけ `mikoshiLeadSec=30` 等を追加）。
+
 ---
 
 ## 初期設定

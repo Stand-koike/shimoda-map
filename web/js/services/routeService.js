@@ -147,6 +147,18 @@ export class RouteService {
     return this._schedule;
   }
 
+  /**
+   * 全区間の tStart / tEnd を同一オフセットでずらす（プレビュー・リハ用）
+   * @param {number} deltaMs 加算するミリ秒（負も可）
+   */
+  applyTimeShift(deltaMs) {
+    const d = Number(deltaMs) || 0;
+    for (const row of this._schedule) {
+      row.tStart += d;
+      row.tEnd += d;
+    }
+  }
+
   getMergedRoute() {
     return this._mergedRoute;
   }

@@ -10,6 +10,41 @@ const CP_URL = new URL('../public/data/checkpoints.geojson', import.meta.url).hr
 const SEG_URL = new URL('../public/data/route_segments.geojson', import.meta.url).href;
 const ICON_URL = new URL('../public/icons/mikoshi.svg', import.meta.url).href;
 
+/** URL で ?mikoshiPreview=1 のとき true（表示ウィンドウをわずかに前倒し） */
+let previewUrlActive = false;
+
+/** プレビュー時: 開始時刻の少し手前からルートを表示（秒）。通常運用では使わない */
+const PREVIEW_PREROLL_MS = 120_000;
+
+/** メインマップで ?mikoshiPreview=1 を付けると、スケジュールを「今」基準に寄せる */
+function applyPreviewTimeShift(routeService) {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const on =
+      q.get('mikoshiPreview') === '1' ||
+      q.get('mikoshiPreview') === 'true' ||
+      q.get('mikoshiRehearsal') === '1';
+    if (!on) return;
+    previewUrlActive = true;
+    const sched = routeService.getSchedule();
+    if (!sched.length) return;
+    const leadRaw = q.get('mikoshiLeadSec');
+    const leadSec =
+      leadRaw != null && leadRaw !== ''
+        ? Math.max(0, Number(leadRaw))
+        : 0;
+    const shift = Date.now() + leadSec * 1000 - sched[0].tStart;
+    routeService.applyTimeShift(shift);
+    console.info(
+      '[Mikoshi] プレビューモード ON。先頭通過を',
+      leadSec === 0 ? '今' : `${leadSec}秒後`,
+      '相当にシフトしました。'
+    );
+  } catch (err) {
+    console.warn('[Mikoshi] プレビューシフト失敗', err);
+  }
+}
+
 const SOURCE_ROUTE = 'mikoshi-route-line';
 const SOURCE_PROGRESS = 'mikoshi-route-progress';
 const SOURCE_CP = 'mikoshi-checkpoints';
@@ -30,11 +65,14 @@ const LAYER_IDS = [
   'mikoshi-layer-symbol'
 ];
 
-function scheduleActive(nowMs) {
+function isWithinScheduleWindow(nowMs) {
   if (!routeService) return false;
   const sched = routeService.getSchedule();
   if (!sched.length) return false;
-  return nowMs >= sched[0].tStart && nowMs <= sched[sched.length - 1].tEnd;
+  const t0 = sched[0].tStart;
+  const t1 = sched[sched.length - 1].tEnd;
+  const startGate = previewUrlActive ? t0 - PREVIEW_PREROLL_MS : t0;
+  return nowMs >= startGate && nowMs <= t1;
 }
 
 function userWantsLayer() {
@@ -47,7 +85,7 @@ function userWantsLayer() {
 function applyCombinedVisibility() {
   if (!map) return;
   const now = Date.now();
-  const show = scheduleActive(now) && userWantsLayer();
+  const show = isWithinScheduleWindow(now) && userWantsLayer();
   const vis = show ? 'visible' : 'none';
   for (const id of LAYER_IDS) {
     if (map.getLayer(id)) {
@@ -92,7 +130,7 @@ function tick() {
   if (!map || !routeService) return;
   applyCombinedVisibility();
   const now = Date.now();
-  if (!scheduleActive(now)) {
+  if (!isWithinScheduleWindow(now)) {
     return;
   }
   const st = routeService.getState(now);
@@ -120,6 +158,7 @@ export async function attachToMainMap(mapboxMap) {
     ]);
 
     routeService = new RouteService(segmentsFc, cpById);
+    applyPreviewTimeShift(routeService);
     const merged = routeService.getMergedRoute();
     const mergedFc = { type: 'FeatureCollection', features: [merged] };
     const initial = routeService.getState();
@@ -197,7 +236,10 @@ export async function attachToMainMap(mapboxMap) {
       rafId = requestAnimationFrame(tick);
     }
   } catch (e) {
-    console.warn('[Mikoshi main map]', e);
+    console.error('[Mikoshi main map] 初期化失敗', e, {
+      cpUrl: CP_URL,
+      segUrl: SEG_URL
+    });
   }
 }
 
