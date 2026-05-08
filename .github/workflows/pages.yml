@@ -1,0 +1,57 @@
+# GitHub Pages — web/ をサイトルートとして公開
+# Actions の Repository secrets（例）:
+#   MAPBOX_PUBLIC_TOKEN, GOOGLE_SHEET_ID（必須） / POSTS_SHEET（任意・未設定時は posts）
+# Settings → Pages → Build and deployment → Source: GitHub Actions
+
+name: Deploy GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate web/secrets.local.js from repository secrets
+        env:
+          MAPBOX_TOKEN: ${{ secrets.MAPBOX_PUBLIC_TOKEN }}
+          SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          POSTS_SHEET: ${{ secrets.POSTS_SHEET }}
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const MAPBOX_TOKEN = process.env.MAPBOX_TOKEN || '';
+          const SHEET_ID = process.env.SHEET_ID || '';
+          const POSTS_SHEET = (process.env.POSTS_SHEET || '').trim() || 'posts';
+          const body =
+            'window.__SHIMODA_MAP_SECRETS__ = {\n' +
+            `    MAPBOX_TOKEN: ${JSON.stringify(MAPBOX_TOKEN)},\n` +
+            `    SHEET_ID: ${JSON.stringify(SHEET_ID)},\n` +
+            `    POSTS_SHEET: ${JSON.stringify(POSTS_SHEET)}\n` +
+            '};\n';
+          fs.writeFileSync('web/secrets.local.js', body, 'utf8');
+          NODE
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

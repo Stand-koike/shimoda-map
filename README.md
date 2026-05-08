@@ -24,6 +24,13 @@ Google スプレッドシートをデータソースに、**イラスト地図**
 3. 列の意味と列順は **`web/index.html` 内の `CONFIG.COLS`** を正とする（0 始まりインデックス）。  
 4. イラスト画像・`MAP_IMAGE` の四隅座標などは同じく `CONFIG` で調整。
 
+### LIVE 投稿（黒船祭マップ運用）
+
+- GAS で `setupSheets()` を実行すると **`posts`** / **`venue_spots`** / **`bot_sessions`** などが作られます（既存 **`user_map`** は列拡張しても読み込み互換があります）。  
+- マップは **`posts`** シートのみを読みます（名前は `secrets.local.js` の `POSTS_SHEET` で変更可能、既定 `posts`）。  
+- **モデレーション**: `posts.isVisible` を `FALSE` にするとブラウザ側で非表示になります（行削除も可）。  
+- **運営スポット**: `venue_spots` に `spotId,name,lat,lng,type` で会場ピンを登録してから、運営ロールが LINE で番号選択します。
+
 **ローカルで試す**:
 
 ```powershell
@@ -34,6 +41,15 @@ python -m http.server 8080
 ブラウザで `http://localhost:8080/` を開く（別ターミナルでなくてよい）。
 
 **デプロイ**: `web/` 以下を Netlify / S3+CloudFront / GitHub Pages（`web` をドキュメントルートに）等へそのまま配置できます。
+
+### GitHub Pages（GitHub Actions）
+
+1. リポジトリ **Settings → Pages** で **Build and deployment の Source を「GitHub Actions」** にする。  
+2. **Settings → Secrets and variables → Actions** に Repository secrets を登録する（`.github/workflows/pages.yml` と名前を一致させる）。  
+   - **`MAPBOX_PUBLIC_TOKEN`** … Mapbox 公開トークン `pk.*`  
+   - **`GOOGLE_SHEET_ID`** … スプレッドシート ID（URL の `/d/` と `/edit` のあいだ）  
+   - **`POSTS_SHEET`**（任意）… 既定は `posts`  
+3. `main` へ push すると `.github/workflows/pages.yml` が走り、**artifact として `web/` だけ**が公開される。ワークフロー内で **`web/secrets.local.js` をシークレットから生成**するため、ローカル用ファイルを Git に含めなくてよい。既定ブランチが `main` でない場合は `pages.yml` の `on.push.branches` を合わせる。
 
 ---
 

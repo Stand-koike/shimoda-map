@@ -7,6 +7,14 @@
 
     <script src='https://api.mapbox.com/mapbox-gl-js/v3.1.0/mapbox-gl.js'></script>
     <link href='https://api.mapbox.com/mapbox-gl-js/v3.1.0/mapbox-gl.css' rel='stylesheet' />
+    <!-- 神輿ルート（Turf）: メインマップ統合モジュール用 -->
+    <script type="importmap">
+    {
+        "imports": {
+            "@turf/turf": "https://esm.sh/@turf/turf@6.5.0"
+        }
+    }
+    </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
     <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
@@ -479,16 +487,24 @@
         .card-image-area { width: 100%; height: 65%; position: relative; overflow: hidden; background: #f7f7f7; }
         .card-thumb { width: 100%; height: 100%; object-fit: cover; }
         .card-emoji-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 60px; background: var(--color-secondary); }
-        .card-info { flex: 1; padding: 15px; display: flex; flex-direction: column; justify-content: center; }
+        .card-info { flex: 1; padding: 15px; display: flex; flex-direction: column; justify-content: center; position: relative; z-index: 0; }
+        .card-hours-line { pointer-events: none; }
         .card-title { font-size: 16px; font-weight: bold; color: var(--color-text-main); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .card-meta-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-        .card-status { font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: bold; letter-spacing: 0.5px; }
-        .flash-news-tag { font-size: 11px; color: white; background: var(--color-accent); padding: 4px 10px; border-radius: 6px; font-weight: bold; display: inline-flex; align-items: center; gap: 4px; }
+        .card-status { font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: bold; letter-spacing: 0.5px; pointer-events: none; }
+        .flash-news-tag {
+            font-size: 11px; color: white; background: var(--color-accent); padding: 4px 10px; border-radius: 6px;
+            font-weight: bold; display: inline-flex; align-items: center; gap: 4px;
+            pointer-events: none;
+        }
+        .flash-news-tag * { pointer-events: none; }
         .card-arrow {
             position: absolute; bottom: 15px; right: 15px;
             width: 32px; height: 32px; border-radius: 50%; background: #f5f5f5;
             display: flex; align-items: center; justify-content: center;
             color: #666; font-size: 14px; transition: all 0.2s;
+            z-index: 10; cursor: pointer; pointer-events: auto;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
         }
         .slide-card.active .card-arrow { background: var(--color-primary); color: white; }
 
@@ -765,7 +781,7 @@
            ============================================================ */
         .live-badge {
             display: inline-flex; align-items: center; gap: 3px;
-            background: #FF3B6B; color: white;
+            background: #2196F3; color: white;
             font-size: 9px; font-weight: bold; letter-spacing: 0.5px;
             padding: 2px 7px; border-radius: 4px;
             animation: live-pulse 1.5s ease-in-out infinite;
@@ -776,18 +792,35 @@
         }
         .marker-live-badge {
             position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%);
-            background: #FF3B6B; color: white;
+            background: #2196F3; color: white;
             font-size: 8px; font-weight: bold;
             padding: 1px 6px; border-radius: 3px;
             white-space: nowrap; z-index: 10;
             border: 1.5px solid white;
             animation: live-pulse 1.5s ease-in-out infinite;
+            max-width: 58px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .live-standalone-marker .marker-inner-livepost {
+            width: 100%; height: 100%; border-radius: 50%; border-width: 3px;
+            background: #fff; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+            display: flex; align-items: center; justify-content: center;
+            overflow: hidden;
+        }
+        .live-standalone-marker {
+            width: 52px; height: 52px;
+        }
+        @media (max-width: 767px) {
+            .live-standalone-marker { width: 40px; height: 40px; }
         }
         .card-live-post {
             margin-top: 5px; padding: 6px 8px;
-            background: #FFF0F3; border-radius: 8px;
-            border-left: 3px solid #FF3B6B;
+            background: #E3F2FD; border-radius: 8px;
+            border-left: 3px solid #2196F3;
+            pointer-events: none;
         }
+        .card-live-post * { pointer-events: none; }
         /* カード上部は常に店舗メイン写真のみ。LIVEは文言のみ（高さ・見切れ防止） */
         .card-live-post--textonly { padding: 5px 8px; margin-top: 4px; }
         .card-live-post--textonly .card-live-message {
@@ -806,8 +839,8 @@
         .card-live-time { font-size: 10px; color: #999; }
         .modal-live-post {
             margin: 0 0 16px; padding: 12px 14px;
-            background: #FFF0F3; border-radius: 12px;
-            border-left: 4px solid #FF3B6B;
+            background: #E3F2FD; border-radius: 12px;
+            border-left: 4px solid #2196F3;
         }
         .modal-live-post-header {
             display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
@@ -1064,10 +1097,9 @@ const CONFIG = {
     // AppSheet ポーリング間隔 (ms)。0 で無効化
     POLL_INTERVAL: 30000,
 
-    // news_log シート設定
-    NEWS_LOG_SHEET: 'news_log',
-    NEWS_LOG_EXPIRY_MS: 3 * 60 * 60 * 1000,  // 3時間以内の投稿のみ有効
-    NEWS_LOG_POLL_INTERVAL: 60000,             // 1分ごとに再取得
+    // posts シート（LINE LIVE 投稿の正）
+    POSTS_SHEET:           _secrets.POSTS_SHEET           || 'posts',
+    LIVE_POST_POLL_INTERVAL: 30000,
 
     TRANSLATIONS: {
         ja: {
@@ -1100,10 +1132,12 @@ const State = {
     pollInterval:        null,
     lastDataHash:        '',
     isPC:                window.innerWidth >= 768,
-    selectedTags:        new Set(),  // 空 = タグフィルタなし（全表示）
-    newsLogData:         {},         // { store_id: { timestamp, message, imageUrl } }
-    newsLogPollInterval: null,
-    tickerList:          []          // _buildTickerList() で生成した統合リスト
+    selectedTags:        new Set(),
+    postsByStoreId:      {},     // fixed 最新1件／店（カード・マーカー LIVE 用）
+    liveStandalonePosts: [],     // 運営スポット / GPS（独立マーカー）
+    liveMarkers:           [],
+    livePostPollInterval:  null,
+    tickerList:            []
 };
 
 // ================================================================
@@ -1210,6 +1244,71 @@ function timeAgo(date) {
     return `${Math.floor(diffH / 24)}日前`;
 }
 
+/** gviz が返すセル値から Date に（Date() 文字列 / 配列 / シリアル日付 / ISO 等） */
+function parseSheetDate(tsVal) {
+    if (tsVal == null || tsVal === '') return null;
+    if (tsVal instanceof Date && !isNaN(tsVal.getTime())) return tsVal;
+    // gviz: [yyyy, mm0, dd, hh?, mi?, ss?] 月は 0 始まり
+    if (Array.isArray(tsVal) && tsVal.length >= 3) {
+        const y = Number(tsVal[0]);
+        const m0 = Number(tsVal[1]);
+        const d = Number(tsVal[2]);
+        const h = tsVal.length > 3 ? Number(tsVal[3]) || 0 : 0;
+        const mi = tsVal.length > 4 ? Number(tsVal[4]) || 0 : 0;
+        const s = tsVal.length > 5 ? Number(tsVal[5]) || 0 : 0;
+        const ts = new Date(y, m0, d, h, mi, s);
+        return isNaN(ts.getTime()) ? null : ts;
+    }
+    let ts = null;
+    if (typeof tsVal === 'string' && tsVal.startsWith('Date(')) {
+        const parts = tsVal.slice(5, -1).split(',').map(Number);
+        ts = new Date(parts[0], parts[1], parts[2], parts[3] || 0, parts[4] || 0, parts[5] || 0);
+    } else if (typeof tsVal === 'number' && tsVal > 2000 && tsVal < 800000) {
+        // スプレッドシートの日付シリアル（1900 系・小数は時刻）
+        ts = new Date((tsVal - 25569) * 86400000);
+    } else {
+        ts = new Date(tsVal);
+    }
+    if (!ts || isNaN(ts.getTime())) return null;
+    return ts;
+}
+
+/** マスタ・posts 双方で store_id キーを一致（DataModule / LIVE 紐づけ） */
+function normalizeStoreId_(raw) {
+    if (raw == null || String(raw).trim() === '') return '';
+    return String(raw).trim().replace(/[^\w.-]/g, '_');
+}
+
+function roundCoord5(v) {
+    return Math.round(Number(v) * 1e5) / 1e5;
+}
+
+const LIVE_RING_COLOR_STORE = '#2196F3';
+
+const LIVE_MARKER_COLOR_BY_ROLE = {
+    store:        '#2196F3',
+    operator:     '#E53935',
+    contributor:  '#FDD835'
+};
+
+/** posts の role 列（store / operator / contributor 等）を表示用の短い日本語に */
+function liveRoleJa(role) {
+    const k = role != null ? String(role).trim().toLowerCase() : '';
+    if (k === 'store') return '店舗';
+    if (k === 'operator') return '運営';
+    if (k === 'contributor') return '投稿';
+    if (!k) return '';
+    return role;
+}
+
+function escapeHtml(s) {
+    return String(s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
 // ================================================================
 // DataModule — Google Sheets 取得・パース・ポーリング
 // ================================================================
@@ -1309,7 +1408,7 @@ const DataModule = {
 
             const storeIdRaw = row.c[COLS.STORE_ID]?.v;
             const storeId = storeIdRaw != null && String(storeIdRaw).trim() !== ''
-                ? String(storeIdRaw).trim().replace(/[^\w.-]/g, '_')
+                ? normalizeStoreId_(storeIdRaw)
                 : '';
             const id = storeId ? `spot_${storeId}` : `spot_${i}`;
 
@@ -1384,98 +1483,164 @@ window._gvizCb = function(json) {
 };
 
 // ================================================================
-// NewsLogModule — LINEライブ投稿取得・パース・ポーリング
+// PostsModule — LIVE投稿（posts シート）取得・ピン統合・ポーリング
 // ================================================================
-const NewsLogModule = {
+const PostsModule = {
 
     _fetchTimeout: null,
 
     fetch() {
-        const cbName = '_gvizNewsLogCb';
-        const oldScript = document.getElementById('gviz-newslog-script');
+        const cbName = '_gvizPostsCb';
+        const oldScript = document.getElementById('gviz-posts-script');
         if (oldScript) oldScript.remove();
 
         clearTimeout(this._fetchTimeout);
         this._fetchTimeout = setTimeout(() => {
-            console.warn('[NewsLogModule] タイムアウト');
+            console.warn('[PostsModule] タイムアウト');
         }, 12000);
 
         const script = document.createElement('script');
-        script.id = 'gviz-newslog-script';
-        script.src = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=responseHandler:${cbName}&sheet=${encodeURIComponent(CONFIG.NEWS_LOG_SHEET)}&_=${Date.now()}`;
+        script.id = 'gviz-posts-script';
+        const sheetParam = encodeURIComponent(CONFIG.POSTS_SHEET || 'posts');
+        script.src =
+            `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=responseHandler:${cbName}&sheet=${sheetParam}&_=${Date.now()}`;
         script.onerror = () => {
             clearTimeout(this._fetchTimeout);
-            console.warn('[NewsLogModule] news_logシート取得失敗');
+            console.warn('[PostsModule] posts シート取得失敗');
         };
         document.body.appendChild(script);
     },
 
     onLoaded(json) {
         clearTimeout(this._fetchTimeout);
-        State.newsLogData = this._parse(json);
-        this._enrichSpots();
+        const { postsByStoreId, liveStandalonePosts } = this._parse(json);
+        State.postsByStoreId = postsByStoreId;
+        State.liveStandalonePosts = liveStandalonePosts;
+
+        PostsModule._attachLiveToSpots();
+
         App._applyFilters();
-        // LIVE投稿が更新されたのでティッカーも再構築
+
         clearInterval(State.newsInterval);
         State.currentNewsIndex = 0;
         UIModule.startTicker();
     },
 
-    _parse(json) {
-        if (!json?.table?.rows) return {};
-        const result = {};
-        const expiry = CONFIG.NEWS_LOG_EXPIRY_MS;
-        const now = Date.now();
-
-        // 列: 0=timestamp, 1=store_id, 2=message, 3=image_url
-        json.table.rows.forEach(row => {
-            if (!row?.c) return;
-            const tsVal    = row.c[0]?.v;
-            const storeId  = row.c[1]?.v ? String(row.c[1].v).trim() : '';
-            const message  = row.c[2]?.v ? String(row.c[2].v).trim() : '';
-            const rawUrl   = row.c[3]?.v ? String(row.c[3].v).trim() : '';
-            const imageUrl = rawUrl ? normalizeImageUrl(rawUrl) : '';
-
-            if (!storeId) return;
-            if (!message && !imageUrl) return;
-
-            // gvizはDateをDate(y,m,d,h,mi,s)形式で返す場合がある
-            let ts = null;
-            if (tsVal) {
-                if (typeof tsVal === 'string' && tsVal.startsWith('Date(')) {
-                    const parts = tsVal.slice(5, -1).split(',').map(Number);
-                    ts = new Date(parts[0], parts[1], parts[2], parts[3] || 0, parts[4] || 0, parts[5] || 0);
-                } else {
-                    ts = new Date(tsVal);
-                }
-            }
-            if (!ts || isNaN(ts.getTime())) return;
-            if (now - ts.getTime() > expiry) return;
-
-            // store_idごとに最新のみ保持
-            if (!result[storeId] || ts.getTime() > result[storeId].timestamp.getTime()) {
-                result[storeId] = { timestamp: ts, message, imageUrl };
-            }
+    _attachLiveToSpots() {
+        State.allSpots.forEach(spot => {
+            const sid = (spot.storeId || '').trim();
+            spot.livePost = sid ? (State.postsByStoreId[sid] || null) : null;
         });
-        return result;
     },
 
-    _enrichSpots() {
-        State.allSpots.forEach(spot => {
-            spot.livePost = spot.storeId ? (State.newsLogData[spot.storeId] || null) : null;
+    /**
+     * 列: postId userId role sourceType category text imageUrl lat lng storeId spotId createdAt expiresAt isVisible
+     */
+    _parse(json) {
+        const postsByStoreId = {};
+        const mobileList = [];
+
+        const now = Date.now();
+        const buckets = {}; // dedupキーごと最新1件
+
+        if (!json?.table?.rows) return { postsByStoreId, liveStandalonePosts: mobileList };
+
+        json.table.rows.forEach(row => {
+            if (!row?.c) return;
+
+            const isVisibleRaw = row.c[13]?.v;
+            if (isVisibleRaw === false || String(isVisibleRaw).toUpperCase() === 'FALSE') return;
+
+            const text = row.c[5]?.v != null ? String(row.c[5].v).trim() : '';
+            const rawImg = row.c[6]?.v != null ? String(row.c[6].v).trim() : '';
+            const imageUrl = rawImg ? normalizeImageUrl(rawImg) : '';
+            if (!text && !imageUrl) return;
+
+            const expiresAt = parseSheetDate(row.c[12]?.v);
+            if (!expiresAt || expiresAt.getTime() <= now) return;
+
+            const role = row.c[2]?.v != null ? String(row.c[2].v).trim().toLowerCase() : '';
+            const sourceType = row.c[3]?.v != null ? String(row.c[3].v).trim().toLowerCase() : '';
+            const category = row.c[4]?.v != null ? String(row.c[4].v).trim() : '';
+
+            let lat = row.c[7]?.v;
+            let lng = row.c[8]?.v;
+            lat = lat != null && lat !== '' ? Number(lat) : null;
+            lng = lng != null && lng !== '' ? Number(lng) : null;
+
+            const createdAt = parseSheetDate(row.c[11]?.v);
+            if (!createdAt) return;
+
+            const storeId = normalizeStoreId_(row.c[9]?.v);
+            const spotIdCol = row.c[10]?.v != null ? String(row.c[10].v).trim() : '';
+
+            const post = {
+                postId:     row.c[0]?.v != null ? String(row.c[0].v) : '',
+                userId:     row.c[1]?.v != null ? String(row.c[1].v) : '',
+                role,
+                sourceType,
+                category,
+                message: text,
+                imageUrl,
+                lat,
+                lng,
+                storeId,
+                spotId:     spotIdCol,
+                timestamp:  createdAt,
+                expiresAt
+            };
+
+            let dedupKey;
+            if (sourceType === 'fixed' && storeId) {
+                dedupKey = `f_${category}_${storeId}`;
+            } else if (lat != null && lng != null && !isNaN(lat) && !isNaN(lng)) {
+                dedupKey = `m_${category}_${roundCoord5(lat)}_${roundCoord5(lng)}`;
+            } else return;
+
+            const prev = buckets[dedupKey];
+            if (!prev || createdAt.getTime() > prev.timestamp.getTime())
+                buckets[dedupKey] = post;
         });
+
+        Object.values(buckets).forEach(p => {
+            if (p.sourceType === 'fixed' && p.storeId) {
+                const sid = p.storeId;
+                const cur = postsByStoreId[sid];
+                if (!cur || p.timestamp.getTime() > cur.timestamp.getTime()) {
+                    postsByStoreId[sid] = {
+                        timestamp:  p.timestamp,
+                        message:    p.message,
+                        imageUrl:   p.imageUrl,
+                        category:   p.category,
+                        role:       p.role,
+                        sourceType: p.sourceType,
+                        expiresAt:  p.expiresAt,
+                        lat:        p.lat,
+                        lng:        p.lng
+                    };
+                }
+                return;
+            }
+            if (p.sourceType === 'gps' || p.sourceType === 'selected') {
+                mobileList.push(p);
+            }
+        });
+
+        mobileList.sort((a, b) => b.timestamp - a.timestamp);
+        return { postsByStoreId, liveStandalonePosts: mobileList };
     },
 
     startPolling() {
-        if (!CONFIG.NEWS_LOG_POLL_INTERVAL) return;
-        clearInterval(State.newsLogPollInterval);
-        State.newsLogPollInterval = setInterval(() => NewsLogModule.fetch(), CONFIG.NEWS_LOG_POLL_INTERVAL);
+        if (!CONFIG.LIVE_POST_POLL_INTERVAL) return;
+        clearInterval(State.livePostPollInterval);
+        State.livePostPollInterval =
+            setInterval(() => PostsModule.fetch(), CONFIG.LIVE_POST_POLL_INTERVAL);
     }
 };
 
-window._gvizNewsLogCb = function(json) {
-    clearTimeout(NewsLogModule._fetchTimeout);
-    NewsLogModule.onLoaded(json);
+window._gvizPostsCb = function(json) {
+    clearTimeout(PostsModule._fetchTimeout);
+    PostsModule.onLoaded(json);
 };
 
 // ================================================================
@@ -1514,6 +1679,14 @@ const LayerManager = {
             visible: false,
             type:    'geojson-fill',
             data: { type: 'FeatureCollection', features: [] }
+        },
+        mikoshi: {
+            name:    '神輿ルート',
+            name_en: 'Mikoshi route',
+            icon:    '🏮',
+            color:   '#C62828',
+            visible: true,
+            type:    'mikoshi'
         }
     },
 
@@ -1553,6 +1726,13 @@ const LayerManager = {
             State.activeMarkers.forEach(m => {
                 m.getElement().style.display = def.visible ? '' : 'none';
             });
+            State.liveMarkers.forEach(m => {
+                m.getElement().style.display = def.visible ? '' : 'none';
+            });
+        } else if (def.type === 'mikoshi') {
+            if (typeof window.__mikoshiApplyVisibility === 'function') {
+                window.__mikoshiApplyVisibility();
+            }
         } else {
             const layerId = `${id}-layer`;
             if (this._map?.getLayer(layerId)) {
@@ -1580,6 +1760,9 @@ const LayerManager = {
 
     getDefs() { return this._defs; }
 };
+
+/** 神輿レイヤのユーザー表示（時間帯と AND。モジュールから参照） */
+window.__shimoda_getMikoshiLayerOn = () => !!LayerManager.getDefs().mikoshi?.visible;
 
 // ================================================================
 // MapModule — マップ初期化・イラストマップ表示・GPS
@@ -1622,6 +1805,9 @@ const MapModule = {
             try {
                 this._addIllustrationMap();
                 LayerManager.init(this._map);
+                import('./js/mikoshi-main-map.js')
+                    .then((mod) => mod.attachToMainMap(this._map))
+                    .catch((e) => console.warn('[Mikoshi]', e));
             } catch (e) {
                 console.error('[MapModule] レイヤー初期化エラー:', e);
             }
@@ -1717,6 +1903,12 @@ const MapModule = {
     },
 
     flyTo(spot) {
+        const c = spot?.coords;
+        if (!Array.isArray(c) || c.length < 2
+            || !Number.isFinite(Number(c[0])) || !Number.isFinite(Number(c[1]))) {
+            console.warn('[MapModule] flyTo: skip (invalid coords)', spot?.id);
+            return;
+        }
         const padding = State.isPC
             ? { top: 50, bottom: 50, left: 50, right: 50 }
             : { top: 50, bottom: 240, left: 20, right: 20 };
@@ -1901,7 +2093,10 @@ const UIModule = {
 
     updateMarkers(spots) {
         State.activeMarkers.forEach(m => m.remove());
+        State.liveMarkers.forEach(m => m.remove());
         State.activeMarkers = [];
+        State.liveMarkers = [];
+
         const spotsVisible = LayerManager.getDefs().spots.visible;
 
         spots.forEach(spot => {
@@ -1915,7 +2110,6 @@ const UIModule = {
             inner.className = 'marker-inner floating';
             inner.style.borderColor = si.color;
 
-            // 画像・絵文字は overflow:hidden の clip レイヤーに収める
             const clip = document.createElement('div');
             clip.className = 'marker-clip';
 
@@ -1941,11 +2135,11 @@ const UIModule = {
                 inner.appendChild(badge);
             }
             if (spot.livePost) {
-                inner.style.borderColor = '#FF3B6B';
-                inner.style.boxShadow = '0 4px 10px rgba(255,59,107,0.45)';
+                inner.style.borderColor = LIVE_RING_COLOR_STORE;
+                inner.style.boxShadow = '0 4px 10px rgba(33,150,243,0.4)';
                 const liveBadge = document.createElement('div');
                 liveBadge.className = 'marker-live-badge';
-                liveBadge.textContent = 'LIVE';
+                liveBadge.textContent = spot.livePost.category ? spot.livePost.category.slice(0, 8) : 'LIVE';
                 el.appendChild(liveBadge);
             } else if (val(spot, 'news')) {
                 const nb = document.createElement('div');
@@ -1959,6 +2153,57 @@ const UIModule = {
             const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
                 .setLngLat(spot.coords).addTo(MapModule._map);
             State.activeMarkers.push(marker);
+        });
+
+        /* 運営スポット / GPS の独立ピン */
+        (State.liveStandalonePosts || []).forEach(lp => {
+            if (!spotsVisible || lp.lat == null || lp.lng == null) return;
+            const clr = LIVE_MARKER_COLOR_BY_ROLE[lp.role] || '#666';
+
+            const el = document.createElement('div');
+            el.className = 'live-standalone-marker custom-marker';
+            const wrap = document.createElement('div');
+            wrap.className = 'marker-inner-livepost floating';
+            wrap.style.borderColor = clr;
+            wrap.style.borderStyle = 'solid';
+
+            if (lp.imageUrl) {
+                const img = document.createElement('img');
+                img.src = lp.imageUrl;
+                img.alt = '';
+                img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%;';
+                img.onerror = () => {
+                    wrap.innerHTML = '<span style="font-size:20px;">📍</span>';
+                };
+                wrap.appendChild(img);
+            } else {
+                wrap.innerHTML = '<span style="font-size:22px;">📍</span>';
+            }
+            el.appendChild(wrap);
+
+            const badge = document.createElement('div');
+            badge.className = 'marker-live-badge';
+            badge.style.background = clr;
+            badge.textContent = liveRoleJa(lp.role);
+            el.appendChild(badge);
+
+            const msgShort = lp.message ? escapeHtml(lp.message.substring(0, 80)) : '';
+            const imgHtml = lp.imageUrl
+                ? `<img src="${escapeHtml(lp.imageUrl)}" alt="" style="max-width:220px;border-radius:8px;margin-top:6px"/>`
+                : '';
+            const popupHtml = `<div style="max-width:240px;font-size:13px;line-height:1.4">
+                <div style="font-weight:bold;color:${clr}">${escapeHtml(lp.category || '')} · ${liveRoleJa(lp.role)}</div>
+                <div style="font-size:11px;color:#888;margin-top:2px">${timeAgo(lp.timestamp)}</div>
+                ${msgShort ? `<div style="margin-top:6px">${msgShort}</div>` : ''}
+                ${imgHtml}
+            </div>`;
+
+            const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+                .setLngLat([Number(lp.lng), Number(lp.lat)])
+                .setPopup(new mapboxgl.Popup({ offset: 28 }).setHTML(popupHtml))
+                .addTo(MapModule._map);
+
+            State.liveMarkers.push(marker);
         });
     },
 
@@ -1999,7 +2244,7 @@ const UIModule = {
                 : '';
             const hoursText = val(spot, 'hours');
             const hoursHtml = hoursText
-                ? `<div style="font-size:11px; color:var(--color-text-sub); margin-top:4px;"><i class="fas fa-clock" style="color:var(--color-primary); margin-right:4px;"></i>${hoursText}</div>`
+                ? `<div class="card-hours-line" style="font-size:11px; color:var(--color-text-sub); margin-top:4px;"><i class="fas fa-clock" style="color:var(--color-primary); margin-right:4px;"></i>${hoursText}</div>`
                 : '';
 
             // LIVEはトップ写真（imageUrl）を変えず、テキスト1行＋バッジのみ（LINE画像は詳細モーダルで）
@@ -2010,9 +2255,11 @@ const UIModule = {
                 const safeMsg = lp.message
                     ? lp.message.substring(0, 48).replace(/</g, '&lt;').replace(/>/g, '&gt;')
                     : (lp.imageUrl ? '📸 画像あり（詳細で表示）' : '');
+                const cat = lp.category ? escapeHtml(lp.category) : '';
                 livePostHtml = `<div class="card-live-post card-live-post--textonly">
                     <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-bottom:2px;">
                         <span class="live-badge">● LIVE</span>
+                        ${cat ? `<span style="font-size:10px;font-weight:bold;color:#1565C0">${cat}</span>` : ''}
                         <span class="card-live-time">${timeStr}</span>
                     </div>
                     ${safeMsg ? `<div class="card-live-message">${safeMsg}</div>` : ''}
@@ -2026,11 +2273,18 @@ const UIModule = {
                     <div class="card-meta-row">${statusHtml}${newsHtml}</div>
                     ${hoursHtml}${tagsHtml}
                     ${livePostHtml}
-                    <div class="card-arrow"
-                        onclick="event.stopPropagation(); UIModule.openModal('${spot.id}')">
+                    <div class="card-arrow" role="button" aria-label="詳細">
                         <i class="fas fa-arrow-right"></i>
                     </div>
                 </div>`;
+            const arrowEl = card.querySelector('.card-arrow');
+            if (arrowEl) {
+                arrowEl.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    UIModule.openModal(spot.id);
+                });
+            }
             container.appendChild(card);
         });
     },
@@ -2061,28 +2315,40 @@ const UIModule = {
      *   { type:'live'|'news', spot, text, imageUrl, timeStr }
      */
     _buildTickerList() {
-        const items = [];
+        const liveItems = [];
 
-        // LIVE投稿（livePostを持つスポットを timestamp 降順で追加）
         State.allSpots
             .filter(s => s.livePost)
-            .sort((a, b) => b.livePost.timestamp - a.livePost.timestamp)
             .forEach(spot => {
                 const lp = spot.livePost;
-                items.push({
+                liveItems.push({
                     type:     'live',
                     spot,
                     text:     lp.message || '（画像投稿）',
                     imageUrl: lp.imageUrl || '',
-                    timeStr:  timeAgo(lp.timestamp)
+                    timeStr:  timeAgo(lp.timestamp),
+                    sortKey:  lp.timestamp.getTime()
                 });
             });
 
-        // 通常news（スプレッドシートのnews列）
+        (State.liveStandalonePosts || []).forEach(lp => {
+            liveItems.push({
+                type:     'live_map',
+                post:     lp,
+                text:     lp.message || '（画像投稿）',
+                imageUrl: lp.imageUrl || '',
+                timeStr:  timeAgo(lp.timestamp),
+                sortKey:  lp.timestamp.getTime()
+            });
+        });
+
+        liveItems.sort((a, b) => (b.sortKey || 0) - (a.sortKey || 0));
+
+        const newsItems = [];
         State.allSpots
             .filter(s => val(s, 'news'))
             .forEach(spot => {
-                items.push({
+                newsItems.push({
                     type:     'news',
                     spot,
                     text:     val(spot, 'news'),
@@ -2091,7 +2357,7 @@ const UIModule = {
                 });
             });
 
-        return items;
+        return liveItems.concat(newsItems);
     },
 
     startTicker() {
@@ -2127,8 +2393,7 @@ const UIModule = {
         textEl.style.opacity = spotEl.style.opacity = '0';
 
         setTimeout(() => {
-            if (item.type === 'live') {
-                // LIVEモード
+            if (item.type === 'live' || item.type === 'live_map') {
                 ticker.classList.add('live-mode');
                 iconArea.innerHTML = '<span class="ticker-live-dot"></span>';
 
@@ -2136,11 +2401,23 @@ const UIModule = {
                     thumb.src = item.imageUrl;
                     thumb.style.display = 'block';
                     thumb._liveUrl = item.imageUrl;
+                    const brd = item.type === 'live_map'
+                        ? (LIVE_MARKER_COLOR_BY_ROLE[item.post.role] || '#FF3B6B')
+                        : '#2196F3';
+                    thumb.style.borderColor = brd;
                 } else {
                     thumb.style.display = 'none';
                 }
                 textEl.innerText = item.text;
-                spotEl.innerHTML = `<span style="color:#FF3B6B; font-weight:bold;">LIVE</span> @${val(item.spot, 'name')} · ${item.timeStr}`;
+                if (item.type === 'live') {
+                    spotEl.innerHTML =
+                        `<span style="color:#2196F3; font-weight:bold;">LIVE</span> @${val(item.spot, 'name')} · ${item.timeStr}`;
+                } else {
+                    const lp = item.post;
+                    const c = LIVE_MARKER_COLOR_BY_ROLE[lp.role] || '#666';
+                    spotEl.innerHTML =
+                        `<span style="color:${c}; font-weight:bold;">LIVE</span> ${escapeHtml(lp.category || '')} · ${liveRoleJa(lp.role)} · ${item.timeStr}`;
+                }
 
             } else {
                 // 通常ニュースモード
@@ -2178,9 +2455,9 @@ const UIModule = {
         list.forEach(item => {
             const div = document.createElement('div');
             div.className = 'news-item';
-            div.onclick = () => { App.selectSpot(item.spot); this.closeNewsList(null, true); };
 
             if (item.type === 'live') {
+                div.onclick = () => { App.selectSpot(item.spot); this.closeNewsList(null, true); };
                 const safeUrl = item.imageUrl ? item.imageUrl.replace(/'/g, '%27') : '';
                 const thumbHtml = item.imageUrl
                     ? `<img src="${item.imageUrl}" class="news-item-live-thumb"
@@ -2194,14 +2471,45 @@ const UIModule = {
                             <span class="live-badge">● LIVE</span>
                             <span style="font-size:11px; font-weight:bold; color:#333; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${val(item.spot, 'name')}</span>
                         </div>
-                        <div style="font-size:13px; color:#444; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.text}</div>
+                        <div style="font-size:13px; color:#444; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(item.text)}</div>
+                        <div class="news-item-time">${item.timeStr}</div>
+                    </div>`;
+            } else if (item.type === 'live_map') {
+                const lp = item.post;
+                div.onclick = () => {
+                    if (MapModule._map && lp.lng != null && lp.lat != null) {
+                        MapModule._map.flyTo({
+                            center: [Number(lp.lng), Number(lp.lat)],
+                            zoom: Math.max(MapModule._map.getZoom(), 15.8),
+                            speed: 0.85
+                        });
+                    }
+                    this.closeNewsList(null, true);
+                };
+                const safeUrl = item.imageUrl ? item.imageUrl.replace(/'/g, '%27') : '';
+                const thumbHtml = item.imageUrl
+                    ? `<img src="${item.imageUrl}" class="news-item-live-thumb"
+                           style="border-color:${LIVE_MARKER_COLOR_BY_ROLE[lp.role] || '#666'}"
+                           onclick="event.stopPropagation(); UIModule.openLightbox('${safeUrl}')"
+                           onerror="this.style.display='none'">`
+                    : `<div class="news-item-icon news-item-type-live"><i class="fas fa-circle" style="font-size:10px;"></i></div>`;
+                const title = `${escapeHtml(lp.category || '')} · ${escapeHtml(liveRoleJa(lp.role))}`;
+                div.innerHTML = `
+                    ${thumbHtml}
+                    <div style="flex:1; min-width:0;">
+                        <div style="display:flex; align-items:center; gap:6px; margin-bottom:3px;">
+                            <span class="live-badge">● LIVE</span>
+                            <span style="font-size:11px; font-weight:bold; color:#333; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${title}</span>
+                        </div>
+                        <div style="font-size:13px; color:#444; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(item.text)}</div>
                         <div class="news-item-time">${item.timeStr}</div>
                     </div>`;
             } else {
+                div.onclick = () => { App.selectSpot(item.spot); this.closeNewsList(null, true); };
                 div.innerHTML = `
                     <div class="news-item-icon"><i class="fas fa-bullhorn"></i></div>
                     <div style="flex:1; min-width:0;">
-                        <div style="font-weight:bold; margin-bottom:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${item.text}</div>
+                        <div style="font-weight:bold; margin-bottom:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(item.text)}</div>
                         <div style="font-size:12px; color:#888;">@${val(item.spot, 'name')}</div>
                     </div>`;
             }
@@ -2296,11 +2604,14 @@ const UIModule = {
             const safeMsg = lp.message
                 ? lp.message.replace(/</g, '&lt;').replace(/>/g, '&gt;')
                 : '';
+            const cat = lp.category ? escapeHtml(lp.category) : '';
+            const roleLine = lp.role ? ` · ${escapeHtml(liveRoleJa(lp.role))}` : '';
             livePostEl.innerHTML = `
                 <div class="modal-live-post-header">
                     <span class="live-badge">● LIVE</span>
                     <span class="modal-live-time">${timeStr}</span>
                 </div>
+                ${cat ? `<div style="font-size:13px;font-weight:bold;color:#1565C0;margin-bottom:6px">${cat}${roleLine}</div>` : ''}
                 ${imgHtml}
                 ${safeMsg ? `<div class="modal-live-message">${safeMsg}</div>` : ''}`;
             livePostEl.style.display = 'block';
@@ -2421,7 +2732,7 @@ const UIModule = {
 // ================================================================
 const App = {
     _selectedCategories: new Set(),
-    _newsLogInitialized: false,
+    _postsInitialized: false,
 
     init() {
         // ?refresh=1 パラメータで強制再取得 (AppSheet Webhook から呼び出し可能)
@@ -2435,23 +2746,20 @@ const App = {
     _onDataReady() {
         const spots = State.allSpots;
         document.getElementById('loading').style.display = 'none';
-        if (spots.length === 0) return;
 
-        // 初回ロード時はすべてのカテゴリを選択
-        if (this._selectedCategories.size === 0) {
+        if (!this._postsInitialized) {
+            this._postsInitialized = true;
+            PostsModule.fetch();
+            PostsModule.startPolling();
+        }
+
+        if (spots.length > 0 && this._selectedCategories.size === 0) {
             [...new Set(spots.map(s => val(s, 'category')))].filter(Boolean)
                 .forEach(c => this._selectedCategories.add(c));
         }
-        // 既存のnews_logデータでライブ投稿をマージ
-        NewsLogModule._enrichSpots();
+        // posts データを店舗スポットへマージ
+        PostsModule._attachLiveToSpots();
         this._refreshUI();
-
-        // 初回のみnews_log取得とポーリングを開始
-        if (!this._newsLogInitialized) {
-            this._newsLogInitialized = true;
-            NewsLogModule.fetch();
-            NewsLogModule.startPolling();
-        }
     },
 
     _refreshUI() {

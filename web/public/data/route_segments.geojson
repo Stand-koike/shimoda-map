@@ -1,0 +1,49 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "segment_id": "seg_01",
+        "segment_name": "第1区間（linear）",
+        "start_cp": "cp_a",
+        "end_cp": "cp_b",
+        "seq": 1,
+        "duration_sec": 1500,
+        "easing": "linear"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [138.9415, 34.6748],
+          [138.9422, 34.675],
+          [138.9428, 34.6752],
+          [138.9432, 34.67535],
+          [138.9435, 34.6755]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "segment_id": "seg_02",
+        "segment_name": "第2区間（easeInOut）",
+        "start_cp": "cp_b",
+        "end_cp": "cp_c",
+        "seq": 2,
+        "duration_sec": 1800,
+        "easing": "easeInOut"
+      },
+      "geometry": {
+        "type": "LineString",
+        "coordinates": [
+          [138.9435, 34.6755],
+          [138.9439, 34.67555],
+          [138.9443, 34.67575],
+          [138.9447, 34.67592],
+          [138.9452, 34.6762]
+        ]
+      }
+    }
+  ]
+}

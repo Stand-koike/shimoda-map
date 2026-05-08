@@ -5,5 +5,7 @@
  */
 window.__SHIMODA_MAP_SECRETS__ = {
     MAPBOX_TOKEN: 'pk.YOUR_MAPBOX_TOKEN',
-    SHEET_ID:     'YOUR_GOOGLE_SHEET_ID'
+    SHEET_ID:     'YOUR_GOOGLE_SHEET_ID',
+    /** LINE 投稿シート名（既定: posts） */
+    POSTS_SHEET: 'posts'
 };

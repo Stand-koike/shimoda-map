@@ -1,0 +1,44 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "checkpoint_id": "cp_a",
+        "checkpoint_name": "出発地（ダミー）",
+        "arrival_time": "2026-05-10T10:00:00+09:00",
+        "seq": 0
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [138.9415, 34.6748]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "checkpoint_id": "cp_b",
+        "checkpoint_name": "中間地点（ダミー）",
+        "arrival_time": "2026-05-10T10:25:00+09:00",
+        "seq": 1
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [138.9435, 34.6755]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "checkpoint_id": "cp_c",
+        "checkpoint_name": "終点（ダミー）",
+        "arrival_time": "2026-05-10T10:55:00+09:00",
+        "seq": 2
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [138.9452, 34.6762]
+      }
+    }
+  ]
+}
