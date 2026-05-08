@@ -2,3 +2,15 @@
 Thumbs.db
 Desktop.ini
 *.log
+
+# IDE（任意・チームで共有する場合のみコミット）
+.vscode/
+
+# 設計・運用ドキュメントはローカルのみ
+docs/
+
+# ローカル秘密設定
+web/secrets.local.js
+web/gas-line-webhook.local.js
+.env
+.env.*

@@ -1,12 +1,12 @@
-# map/index.html をローカルで開くための簡易 HTTP サーバー（WebGL で file:// が失敗することがあるため）
+# web/index.html をローカルで開くための簡易 HTTP サーバー（WebGL で file:// が失敗することがあるため）
 $ErrorActionPreference = 'Stop'
-$mapDir = Join-Path $PSScriptRoot 'map'
-if (-not (Test-Path $mapDir)) {
-    Write-Error "map folder not found: $mapDir"
+$webDir = Join-Path $PSScriptRoot 'web'
+if (-not (Test-Path $webDir)) {
+    Write-Error "web folder not found: $webDir"
 }
-Set-Location -LiteralPath $mapDir
+Set-Location -LiteralPath $webDir
 $port = if ($env:MAP_PORT) { [int]$env:MAP_PORT } else { 8080 }
-Write-Host "Serving http://localhost:$port/  (cwd: $mapDir)"
+Write-Host "Serving http://localhost:$port/  (cwd: $webDir)"
 Write-Host "Press Ctrl+C to stop."
 
 $python = Get-Command python -ErrorAction SilentlyContinue
