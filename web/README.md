@@ -1,12 +1,19 @@
 # `web/` — ブラウザ向け静的ファイル
 
-このフォルダには **マップ画面の HTML・画像・秘密設定のサンプル** が入ります（ルートの「地図アプリ」とは別で、**Web サイト用アセット置き場**という意味の名前です）。  
+このフォルダには **マップ画面の HTML・画像・秘密設定のサンプル** が入ります。**Web 用アセット置き場**という意味で `web/` と名付けています。  
 元テンプレートはデスクトップの別プロジェクト `map` から流用しています。  
-ブラウザで `index.html` を開くか、ルートの [`serve-map.ps1`](../serve-map.ps1) 経由でアクセスしてください。
+
+**ローカルプレビュー**（このフォルダで）:
+
+```bash
+python -m http.server 8080
+```
+
+→ `http://localhost:8080/` で `index.html` が開く（`secrets.local.js` が要る）。`file://` で直接開くと WebGL がブロックされることがあります。
+
+VS Code の **Live Server** で `index.html` を開いてもよい。
 
 ---
-
-## ファイル一覧
 
 | ファイル | 説明 |
 |----------|------|
@@ -17,26 +24,6 @@
 | `secrets.local.js` | Mapbox トークン・`SHEET_ID`（**コミットしない**）。`index.html` が先に読み込む |
 | `gas-line-webhook.js` | GAS 用テンプレート（**プレースホルダのみ**コミット）。LINE シークレットは GAS 側で設定 |
 | `gas-line-webhook.local.js` | 任意：ローカルに実値入りの全文を保存して GAS へ貼り付け用（**コミットしない**） |
-
----
-
-## 起動方法
-
-### ローカルサーバー（推奨）
-
-`file://` 直接開きだと WebGL テクスチャの読み込みが Chrome でブロックされる場合があります。  
-Python が入っている場合は以下で簡易サーバーを立ち上げてください：
-
-```bash
-cd web
-python -m http.server 8080
-```
-
-ブラウザで `http://localhost:8080` を開く。
-
-### VS Code Live Server
-
-VS Code の **Live Server** 拡張機能を使う場合は `index.html` を右クリック →「Open with Live Server」。
 
 ---
 

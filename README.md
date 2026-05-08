@@ -12,9 +12,8 @@ Google スプレッドシートをデータソースに、**イラスト地図**
 | **`web/`** | 本番相当の静的ファイル（`index.html`・画像・`secrets.example.js`・GAS 用テンプレ `gas-line-webhook.js`） |
 | **`README.md`** | 本ファイル |
 | **`SECURITY.md`** | 秘密情報の扱い（GitHub セキュリティポリシー用の簡易版） |
-| **`serve-map.ps1`** | 任意：ローカルプレビュー用（`web/` を簡易 HTTP 配信） |
 
-**チーム内の設計書・要件・スプレッドシート詳細ドキュメントは `docs/` に置き、Git には含めません**（`.gitignore` 済み）。ローカルにだけおいて開発してください。
+**チーム内の設計書・スプレッドシート列の詳細は `docs/` に置き、Git には含めません**（`.gitignore` 済み）。一覧は `docs/README.md`。
 
 ---
 
@@ -25,13 +24,14 @@ Google スプレッドシートをデータソースに、**イラスト地図**
 3. 列の意味と列順は **`web/index.html` 内の `CONFIG.COLS`** を正とする（0 始まりインデックス）。  
 4. イラスト画像・`MAP_IMAGE` の四隅座標などは同じく `CONFIG` で調整。
 
-**ローカルで試す**（ルートで）:
+**ローカルで試す**:
 
 ```powershell
-.\serve-map.ps1
+cd web
+python -m http.server 8080
 ```
 
-→ `http://localhost:8080/` で `web/index.html` が開きます。
+ブラウザで `http://localhost:8080/` を開く（別ターミナルでなくてよい）。
 
 **デプロイ**: `web/` 以下を Netlify / S3+CloudFront / GitHub Pages（`web` をドキュメントルートに）等へそのまま配置できます。
 
