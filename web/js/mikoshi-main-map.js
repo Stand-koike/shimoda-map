@@ -231,6 +231,21 @@ export async function attachToMainMap(mapboxMap) {
     applyPreviewTimeShift(routeService);
     maybeEnableGithubPagesAutoDemo(routeService);
     initPreviewClock(routeService);
+    if (new URLSearchParams(location.search).get('mikoshiDebug') === '1') {
+      const s = routeService.getSchedule();
+      if (s.length) {
+        const t0 = s[0].tStart;
+        const t1 = s[s.length - 1].tEnd;
+        const n = Date.now();
+        console.info('[Mikoshi debug]', {
+          t0Jst: new Date(t0).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
+          t1Jst: new Date(t1).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
+          nowJst: new Date(n).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
+          inWindow: n >= t0 && n <= t1,
+          previewUrlActive
+        });
+      }
+    }
     const merged = routeService.getMergedRoute();
     const mergedFc = { type: 'FeatureCollection', features: [merged] };
     const initial = routeService.getState(scheduleNowMs());
