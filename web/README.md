@@ -26,8 +26,8 @@ VS Code の **Live Server** で `index.html` を開いてもよい。
 | `gas-line-webhook.local.js` | 任意：ローカルに実値入りの全文を保存して GAS へ貼り付け用（**コミットしない**） |
 | `mikoshi/index.html` | 神輿ルート単体デモ（Mapbox + Turf）。**メイン index でもレイヤーパネル「神輿ルート」から同じデータを表示可** — 手順は [mikoshi/README.md](mikoshi/README.md) |
 
-**神輿（メイン地図）**: レイヤーパネルで **「神輿ルート」ON** かつ **`checkpoints.geojson` の `arrival_time` で囲まれた時間帯内**のみ表示・移動します。日付が合わないときの動作確認は URL に  
-`?mikoshiPreview=1` を付ける（先頭通過を **今** に合わせてシフト。**数秒後**にしたいときだけ `mikoshiLeadSec=30` 等を追加）。**プレビューだけ**スケジュール時刻を **約120倍**の速さで進めます（体感で進む。さらに速くは `mikoshiSpeed=300` など **1〜4000**）。**本番当日・プレビュー無し**のときは従来どおり実時間です。
+**神輿（メイン地図）**: レイヤーパネルで **「神輿ルート」ON** かつ **`checkpoints.geojson` の `arrival_time` で囲まれた時間帯内**のみ表示・移動します。  
+**GitHub Pages（`*.github.io`）** で時刻が CP と重ならないときは、自動でデモ再生（プレビュー相当・早送り）します。実際の `arrival_time` だけにしたいときは **`?mikoshiLive=1`**。手動プレビューは **`?mikoshiPreview=1`**（`mikoshiSpeed`・`mikoshiLeadSec` は従来どおり）。**自前ドメイン**では自動デモはせず、時刻外は従来どおり非表示か手動プレビューで確認してください。
 
 ---
 

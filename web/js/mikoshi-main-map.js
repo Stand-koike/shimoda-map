@@ -49,6 +49,32 @@ function applyPreviewTimeShift(routeService) {
   }
 }
 
+/**
+ * GitHub Pages 等 *.github.io: CP の arrival_time がブラウザの「今」と重ならないとレイヤーが一切出ない。
+ * スケジュール外のときだけ自動デモ（プレビュー相当）。本番当日の実時間のみは URL に ?mikoshiLive=1
+ */
+function maybeEnableGithubPagesAutoDemo(rs) {
+  if (previewUrlActive || !rs) return;
+  try {
+    if (!/\.github\.io$/i.test(location.hostname)) return;
+    const q = new URLSearchParams(location.search);
+    if (q.get('mikoshiLive') === '1') return;
+    const sched = rs.getSchedule();
+    if (!sched.length) return;
+    const t0 = sched[0].tStart;
+    const t1 = sched[sched.length - 1].tEnd;
+    const now = Date.now();
+    if (now >= t0 && now <= t1) return;
+    previewUrlActive = true;
+    rs.applyTimeShift(now - t0 - 500);
+    console.info(
+      '[Mikoshi] GitHub Pages: CP時刻が現在と重ならないためデモ表示（実時間のみ: ?mikoshiLive=1）'
+    );
+  } catch (e) {
+    console.warn('[Mikoshi] GitHub Pages 自動デモ失敗', e);
+  }
+}
+
 /** プレビュー中は「スケジュール上のいま」（時刻の早送り・終了後はループ）。通常は実時刻。 */
 function scheduleNowMs() {
   if (!previewUrlActive || !previewClock || !routeService) return Date.now();
@@ -203,6 +229,7 @@ export async function attachToMainMap(mapboxMap) {
 
     routeService = new RouteService(segmentsFc, cpById);
     applyPreviewTimeShift(routeService);
+    maybeEnableGithubPagesAutoDemo(routeService);
     initPreviewClock(routeService);
     const merged = routeService.getMergedRoute();
     const mergedFc = { type: 'FeatureCollection', features: [merged] };
