@@ -1273,10 +1273,10 @@ function parseSheetDate(tsVal) {
     return ts;
 }
 
-/** マスタ・posts 双方で store_id キーを一致（DataModule / LIVE 紐づけ） */
+/** マスタ・posts 双方で store_id キーを一致（日本語店舗名可・前後・連続空白のみ正規化） */
 function normalizeStoreId_(raw) {
     if (raw == null || String(raw).trim() === '') return '';
-    return String(raw).trim().replace(/[^\w.-]/g, '_');
+    return String(raw).replace(/\s+/g, ' ').trim();
 }
 
 function roundCoord5(v) {
@@ -1410,7 +1410,7 @@ const DataModule = {
             const storeId = storeIdRaw != null && String(storeIdRaw).trim() !== ''
                 ? normalizeStoreId_(storeIdRaw)
                 : '';
-            const id = storeId ? `spot_${storeId}` : `spot_${i}`;
+            const id = storeId ? `spot_${storeId.replace(/\s+/g, '_')}` : `spot_${i}`;
 
             const address   = row.c[COLS.ADDRESS]?.v   != null ? String(row.c[COLS.ADDRESS].v)   : '';
             const addressEn = row.c[COLS.ADDRESS_EN]?.v != null ? String(row.c[COLS.ADDRESS_EN].v) : '';
@@ -1519,11 +1519,7 @@ const PostsModule = {
 
         PostsModule._attachLiveToSpots();
 
-        App._applyFilters();
-
-        clearInterval(State.newsInterval);
-        State.currentNewsIndex = 0;
-        UIModule.startTicker();
+        App._refreshUI();
     },
 
     _attachLiveToSpots() {
@@ -1885,7 +1881,7 @@ const MapModule = {
     fitBounds() {
         const spotsVisible = LayerManager.getDefs().spots.visible;
         const targets = spotsVisible
-            ? State.allSpots.filter(s => App._selectedCategories.has(val(s, 'category')))
+            ? State.allSpots.filter(s => App._selectedCategories.has(App._effectiveFilterCategorySpot(s)))
             : [];
 
         if (targets.length > 0) {
@@ -1952,7 +1948,10 @@ const UIModule = {
     generateFilters(spots) {
         const list = document.getElementById('filter-list');
         list.innerHTML = '';
-        const cats = [...new Set(spots.map(s => val(s, 'category')))].filter(Boolean);
+        const cats = App._allFilterCategoryKeys();
+
+        // データに初めて現れたカテゴリは既定で表示ON（ユーザーが外した既存カテゴリはそのまま）
+        App._mergeNewFilterCategories(cats);
 
         // カテゴリチェックボックス
         const catTitle = document.createElement('div');
@@ -2158,6 +2157,7 @@ const UIModule = {
         /* 運営スポット / GPS の独立ピン */
         (State.liveStandalonePosts || []).forEach(lp => {
             if (!spotsVisible || lp.lat == null || lp.lng == null) return;
+            if (!App._standaloneLiveVisible(lp)) return;
             const clr = LIVE_MARKER_COLOR_BY_ROLE[lp.role] || '#666';
 
             const el = document.createElement('div');
@@ -2319,6 +2319,9 @@ const UIModule = {
 
         State.allSpots
             .filter(s => s.livePost)
+            .filter(s => App._selectedCategories.has(
+                s.livePost.category ? s.livePost.category : val(s, 'category')
+            ))
             .forEach(spot => {
                 const lp = spot.livePost;
                 liveItems.push({
@@ -2331,7 +2334,9 @@ const UIModule = {
                 });
             });
 
-        (State.liveStandalonePosts || []).forEach(lp => {
+        (State.liveStandalonePosts || [])
+            .filter(lp => App._standaloneLiveVisible(lp))
+            .forEach(lp => {
             liveItems.push({
                 type:     'live_map',
                 post:     lp,
@@ -2732,7 +2737,43 @@ const UIModule = {
 // ================================================================
 const App = {
     _selectedCategories: new Set(),
+    _seenFilterCategories: new Set(),
     _postsInitialized: false,
+
+    /** 絞り込み判定: 店舗は LIVE 投稿のカテゴリを優先、なければマスタのカテゴリ */
+    _effectiveFilterCategorySpot(spot) {
+        if (spot.livePost && spot.livePost.category) return spot.livePost.category;
+        return val(spot, 'category');
+    },
+
+    _standaloneLiveVisible(lp) {
+        const c = lp.category;
+        if (!c) return true;
+        return this._selectedCategories.has(c);
+    },
+
+    _allFilterCategoryKeys() {
+        const catSet = new Set();
+        State.allSpots.forEach(s => {
+            const c = val(s, 'category');
+            if (c) catSet.add(c);
+            if (s.livePost && s.livePost.category) catSet.add(s.livePost.category);
+        });
+        (State.liveStandalonePosts || []).forEach(lp => {
+            if (lp.category) catSet.add(lp.category);
+        });
+        return [...catSet].sort((a, b) => String(a).localeCompare(String(b), 'ja'));
+    },
+
+    /** 初登場のカテゴリだけ選択に自動追加（手動OFFした既存カテゴリは維持） */
+    _mergeNewFilterCategories(cats) {
+        cats.forEach(cat => {
+            if (!this._seenFilterCategories.has(cat)) {
+                this._seenFilterCategories.add(cat);
+                this._selectedCategories.add(cat);
+            }
+        });
+    },
 
     init() {
         // ?refresh=1 パラメータで強制再取得 (AppSheet Webhook から呼び出し可能)
@@ -2755,7 +2796,10 @@ const App = {
 
         if (spots.length > 0 && this._selectedCategories.size === 0) {
             [...new Set(spots.map(s => val(s, 'category')))].filter(Boolean)
-                .forEach(c => this._selectedCategories.add(c));
+                .forEach(c => {
+                    this._selectedCategories.add(c);
+                    this._seenFilterCategories.add(c);
+                });
         }
         // posts データを店舗スポットへマージ
         PostsModule._attachLiveToSpots();
@@ -2780,7 +2824,8 @@ const App = {
 
     _applyFilters() {
         const targets = State.allSpots.filter(s => {
-            if (!this._selectedCategories.has(val(s, 'category'))) return false;
+            const cat = this._effectiveFilterCategorySpot(s);
+            if (!this._selectedCategories.has(cat)) return false;
             // タグフィルタ: 選択タグがあれば、スポットが少なくとも1つ一致するもののみ表示
             if (State.selectedTags.size > 0) {
                 const spotTags = (State.language === 'ja' ? s.tags : s.tags_en) || [];
@@ -2799,8 +2844,11 @@ const App = {
         document.getElementById('lang-text').innerText = State.language.toUpperCase();
         // カテゴリ・タグは言語ごとに異なるためリセット
         this._selectedCategories.clear();
-        [...new Set(State.allSpots.map(s => val(s, 'category')))].filter(Boolean)
-            .forEach(c => this._selectedCategories.add(c));
+        this._seenFilterCategories.clear();
+        this._allFilterCategoryKeys().forEach(c => {
+            this._seenFilterCategories.add(c);
+            this._selectedCategories.add(c);
+        });
         State.selectedTags.clear();
         this._refreshUI();
     },
