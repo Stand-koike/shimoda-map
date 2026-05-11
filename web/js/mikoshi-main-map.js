@@ -4,11 +4,11 @@
  */
 import { loadCheckpoints } from './services/checkpointService.js';
 import { RouteService } from './services/routeService.js';
-import { svgUrlToImageBitmap } from './services/mapService.js';
+import { iconUrlToImageBitmap } from './services/mapService.js';
 
 const CP_URL = new URL('../public/data/checkpoints.geojson', import.meta.url).href;
 const SEG_URL = new URL('../public/data/route_segments.geojson', import.meta.url).href;
-const ICON_URL = new URL('../public/icons/mikoshi.svg', import.meta.url).href;
+const ICON_URL = new URL('../public/icons/パレードロゴ.png', import.meta.url).href;
 
 /** URL で ?mikoshiPreview=1 のとき true（表示ウィンドウをわずかに前倒し） */
 let previewUrlActive = false;
@@ -126,7 +126,7 @@ let map = null;
 let routeService = null;
 /** @type {number | null} */
 let rafId = null;
-let iconSize = 0.38;
+let iconSize = 0.57;
 
 const LAYER_IDS = [
   'mikoshi-layer-route',
@@ -251,7 +251,7 @@ export async function attachToMainMap(mapboxMap) {
     const initial = routeService.getState(scheduleNowMs());
 
     if (!map.hasImage('mikoshi-icon')) {
-      const canvas = await svgUrlToImageBitmap(ICON_URL, 128);
+      const canvas = await iconUrlToImageBitmap(ICON_URL, 128);
       const bitmap = await createImageBitmap(canvas);
       map.addImage('mikoshi-icon', bitmap, { pixelRatio: 2 });
     }

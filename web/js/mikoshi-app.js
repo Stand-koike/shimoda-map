@@ -60,7 +60,7 @@ async function main() {
 
   mapService.fitRouteBounds(merged);
 
-  let iconSize = 0.45;
+  let iconSize = 0.675;
   const anim = new AnimationService({
     routeService,
     mapService,

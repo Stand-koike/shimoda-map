@@ -8,13 +8,13 @@
 |------|------|
 | [index.html](index.html) | エントリ（Mapbox CDN・importmap・下部ツールバー） |
 | [../js/mikoshi-app.js](../js/mikoshi-app.js) | 初期化 |
-| [../js/services/mapService.js](../js/services/mapService.js) | 地図・レイヤ・SVG アイコン |
+| [../js/services/mapService.js](../js/services/mapService.js) | 地図・レイヤ・アイコン |
 | [../js/services/checkpointService.js](../js/services/checkpointService.js) | チェックポイント GeoJSON |
 | [../js/services/routeService.js](../js/services/routeService.js) | スケジュール・Turf（length / along / lineSlice / nearestPointOnLine） |
 | [../js/services/animationService.js](../js/services/animationService.js) | `requestAnimationFrame` ループ |
 | [../public/data/checkpoints.geojson](../public/data/checkpoints.geojson) | CP・到着時刻 |
 | [../public/data/route_segments.geojson](../public/data/route_segments.geojson) | 区間 LineString・easing |
-| [../public/icons/mikoshi.svg](../public/icons/mikoshi.svg) | 神輿アイコン |
+| [../public/icons/パレードロゴ.png](../public/icons/パレードロゴ.png) | 神輿アイコン（PNG） |
 
 ## 必要な設定（env に相当）
 
@@ -56,9 +56,9 @@ npm / `package.json` は不要です。
 
 本ページは Mapbox GL JS **v3.1** を CDN から読み込みます。
 
-## SVG アイコンの置き場所と読み込み
+## マーカーアイコンの置き場所と読み込み
 
-- ファイル: [../public/icons/mikoshi.svg](../public/icons/mikoshi.svg)
+- ファイル: [../public/icons/パレードロゴ.png](../public/icons/パレードロゴ.png)（`.svg` も `iconUrlToImageBitmap` で利用可）
 - `mapService` が `fetch` → Blob → `Image` → **Canvas 描画** → `createImageBitmap` → `map.addImage('mikoshi-icon', …)` で登録しています。
 - **ブラウザは `http://` / `https://` で開く必要**があります（`file://` では `fetch` や WebGL が失敗しがちです）。
 

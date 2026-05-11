@@ -1,5 +1,5 @@
 /**
- * Mapbox の初期化、SVG アイコン登録、route / checkpoint / 神輿レイヤ
+ * Mapbox の初期化、アイコン登録、route / checkpoint / 神輿レイヤ
  */
 
 const SOURCE_ROUTE = 'mikoshi-route-line';
@@ -17,16 +17,30 @@ function makeGeoJSON(type, obj) {
   return { type: 'FeatureCollection', features: [] };
 }
 
+function isSvgIconUrl(url) {
+  try {
+    return /\.svg$/i.test(new URL(url).pathname);
+  } catch {
+    return /\.svg$/i.test(url);
+  }
+}
+
 /**
- * SVG を Canvas 経由で ImageData 相当として loadImage に渡せる形にする
- * @param {string} svgUrl
+ * SVG またはラスタ（PNG 等）を Canvas に描画し、Mapbox addImage 用に使う
+ * @param {string} iconUrl
  * @param {number} size
  */
-export async function svgUrlToImageBitmap(svgUrl, size = 128) {
-  const res = await fetch(svgUrl);
-  const raw = await res.text();
-  const blob = new Blob([raw], { type: 'image/svg+xml;charset=utf-8' });
-  const objectUrl = URL.createObjectURL(blob);
+export async function iconUrlToImageBitmap(iconUrl, size = 128) {
+  const res = await fetch(iconUrl);
+  if (!res.ok) throw new Error(`icon fetch ${res.status}`);
+  let objectUrl;
+  if (isSvgIconUrl(iconUrl)) {
+    const raw = await res.text();
+    const blob = new Blob([raw], { type: 'image/svg+xml;charset=utf-8' });
+    objectUrl = URL.createObjectURL(blob);
+  } else {
+    objectUrl = URL.createObjectURL(await res.blob());
+  }
   try {
     const img = new Image();
     await new Promise((resolve, reject) => {
@@ -73,8 +87,8 @@ export class MapService {
       this._map.once('error', reject);
     });
 
-    const canvas = await svgUrlToImageBitmap(
-      new URL('../../public/icons/mikoshi.svg', import.meta.url).href,
+    const canvas = await iconUrlToImageBitmap(
+      new URL('../../public/icons/パレードロゴ.png', import.meta.url).href,
       128
     );
     const bitmap = await createImageBitmap(canvas);
@@ -126,7 +140,7 @@ export class MapService {
       source: SOURCE_MIKOSHI,
       layout: {
         'icon-image': 'mikoshi-icon',
-        'icon-size': 0.45,
+        'icon-size': 0.675,
         'icon-allow-overlap': true,
         'icon-ignore-placement': true,
         'icon-rotation-alignment': 'map',

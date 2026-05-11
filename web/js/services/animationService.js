@@ -9,7 +9,7 @@ export class AnimationService {
   constructor(ctx) {
     this._route = ctx.routeService;
     this._map = ctx.mapService;
-    this._getIconSize = ctx.getIconSize || (() => 0.45);
+    this._getIconSize = ctx.getIconSize || (() => 0.675);
     /** @type {number | null} */
     this._raf = null;
     this._running = false;
