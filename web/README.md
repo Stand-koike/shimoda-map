@@ -23,6 +23,7 @@ VS Code の **Live Server** で `index.html` を開いてもよい。
 | `secrets.example.js` | サンプル（**コミットする**）。`secrets.local.js` として複製して編集 |
 | `secrets.local.js` | Mapbox トークン・`SHEET_ID`（**コミットしない**）。`index.html` が先に読み込む |
 | `gas-line-webhook.js` | GAS 用テンプレート（**プレースホルダのみ**コミット）。LINE シークレットは GAS 側で設定 |
+| [LINE_INTEGRATION.md](LINE_INTEGRATION.md) | LINE 連携の現状仕様（ユーザー識別・投稿フロー・シート列・フロントとの契約） |
 | `gas-line-webhook.local.js` | 任意：ローカルに実値入りの全文を保存して GAS へ貼り付け用（**コミットしない**） |
 | `mikoshi/index.html` | 神輿ルート単体デモ（Mapbox + Turf）。**メイン index でもレイヤーパネル「神輿ルート」から同じデータを表示可** — 手順は [mikoshi/README.md](mikoshi/README.md) |
 

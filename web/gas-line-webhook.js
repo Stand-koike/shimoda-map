@@ -54,6 +54,33 @@ function getWebhookSheetId_() {
   return '';
 }
 
+/** Webhook 用スプレッドシートを開く（SHEET_ID 未設定・権限エラー時は分かりやすい例外） */
+function openWebhookSpreadsheet_() {
+  var id = getWebhookSheetId_();
+  if (!id) {
+    throw new Error(
+      'SHEET_ID が未設定です。GAS「プロジェクトの設定」→「スクリプトプロパティ」に SHEET_ID（スプレッドシートのID文字列）を登録してください。'
+    );
+  }
+  try {
+    return SpreadsheetApp.openById(id);
+  } catch (e) {
+    throw new Error(
+      'スプレッドシートを開けません。SHEET_ID が正しいか、このGASを「デプロイしたGoogleアカウント」に表の編集権限があるか確認してください。 ' +
+        String(e.message || e)
+    );
+  }
+}
+
+/** シートの userId 列と LINE の userId を安全に比較する（前後空白のゆれ対策） */
+function normalizeWebhookUserIdForSheet_(userId) {
+  return String(userId == null ? '' : userId).trim();
+}
+
+function sheetRowUserIdMatches_(cellVal, userId) {
+  return normalizeWebhookUserIdForSheet_(cellVal) === normalizeWebhookUserIdForSheet_(userId);
+}
+
 /**
  * LINE チャネルアクセストークン。
  * 優先: スクリプトプロパティ（LINE_CHANNEL_ACCESS_TOKEN / YOUR_LINE_CHANNEL_ACCESS_TOKEN）→ WEBHOOK_CONFIG
@@ -98,7 +125,7 @@ const PENDING_SHEET_NAME = 'pending_posts';
 const MAX_MESSAGE_LENGTH = 50;
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
 const DRIVE_FOLDER_NAME = 'LINE_MAP_IMAGES';
-const PENDING_EXPIRE_MS = 3 * 60 * 1000;
+const PENDING_EXPIRE_MS = 1 * 60 * 1000;
 
 const ROLE_STORE = 'store';
 const ROLE_OPERATOR = 'operator';
@@ -111,6 +138,9 @@ const STEP_IDLE = 'idle';
 const STEP_AWAITING_CONTENT = 'awaiting_content';
 const STEP_AWAITING_SPOT = 'awaiting_spot';
 const STEP_AWAITING_CATEGORY = 'awaiting_category';
+/** 未登録向け: 「店」のあと store_id だけ送らせる */
+const STEP_AWAITING_REGISTER_STORE_ID = 'awaiting_register_store_id';
+const STEP_AWAITING_STORE_LOCATION   = 'awaiting_store_location';
 
 const TTL_MS = {
   [ROLE_STORE]: 3 * 60 * 60 * 1000,
@@ -122,10 +152,49 @@ const SOURCE_FIXED = 'fixed';
 const SOURCE_SELECTED = 'selected';
 const SOURCE_GPS = 'gps';
 
+/** 店舗 store_id の比較用（日本語可・連続空白を1つに） */
+function normalizeStoreKeyForWebhook_(s) {
+  if (s == null) return '';
+  return String(s).replace(/\s+/g, ' ').trim();
+}
+
 /** 1 引数 insertSheet は先頭挿入になり gviz の先頭シート（店舗マスタ）がずれるため末尾に追加する */
 function insertSheetAtEnd_(ss, name) {
   const n = ss.getSheets().length;
   return ss.insertSheet(name, n + 1);
+}
+
+/** LINE Webhook の位置メッセージから緯度経度を取り出す（キー表記のゆれ対策） */
+function readLineLocationLatLng_(msg) {
+  if (!msg || typeof msg !== 'object') return { lat: null, lng: null };
+  var lat = msg.latitude != null ? msg.latitude : msg.lat;
+  var lng = msg.longitude != null ? msg.longitude : msg.lng;
+  if ((lat == null || lng == null) && msg.coordinates && typeof msg.coordinates === 'object') {
+    lat = msg.coordinates.latitude != null ? msg.coordinates.latitude : msg.coordinates.lat;
+    lng = msg.coordinates.longitude != null ? msg.coordinates.longitude : msg.coordinates.lng;
+  }
+  return { lat: lat, lng: lng };
+}
+
+/**
+ * 「実行数」の詳細に残りやすいよう Logger にも出す（console のみだと未表示・取得遅延のことがある）
+ */
+function webhookExecLog_(message) {
+  try {
+    Logger.log(message);
+  } catch (e) {}
+  try {
+    console.info(message);
+  } catch (e2) {}
+}
+
+function webhookExecErr_(message) {
+  try {
+    Logger.log(message);
+  } catch (e) {}
+  try {
+    console.error(message);
+  } catch (e2) {}
 }
 
 function doPost(e) {
@@ -136,23 +205,88 @@ function doPost(e) {
     events.forEach(event => {
       if (event.type !== 'message') return;
 
-      const userId = event.source?.userId;
-      const replyToken = event.replyToken;
-      const msg = event.message;
-
-      if (!userId || !msg) return;
-
-      if (msg.type === 'text') {
-        handleTextIncoming(userId, replyToken, msg.text.trim());
-        return;
+      // 位置→すぐテキストなどの並列Webhookでセッションがずれるのを抑えるため直列化する。
+      // waitLock がタイムアウトすると例外で全体が落ち LINE に一切返せなくなるので、失敗時はロックなしで続行する。
+      const lock = LockService.getScriptLock();
+      var lockHeld = false;
+      try {
+        lock.waitLock(10000);
+        lockHeld = true;
+      } catch (lockErr) {
+        webhookExecErr_('[doPost] LockService.waitLock ' + String(lockErr && lockErr.message ? lockErr.message : lockErr));
       }
-      if (msg.type === 'image') {
-        handleImageIncoming(userId, replyToken, msg.id);
-        return;
-      }
-      if (msg.type === 'location') {
-        handleLocationIncoming(userId, replyToken, msg.latitude, msg.longitude);
-        return;
+      try {
+        const userId = event.source?.userId;
+        const replyToken = event.replyToken;
+        const msg = event.message;
+
+        if (!msg) {
+          if (replyToken) {
+            replyText(replyToken, '⚠️ メッセージ本文を取得できませんでした。もう一度お試しください。');
+          }
+          return;
+        }
+        if (!userId) {
+          if (replyToken) {
+            replyText(
+              replyToken,
+              '⚠️ ユーザー情報を取得できませんでした。\n' +
+                '・公式アカウントとの「1対1」のトークで試してください\n' +
+                '・グループ利用時は、送信者の userId が届かない設定だと利用できません'
+            );
+          }
+          return;
+        }
+
+        const msgType = String(msg.type || '').toLowerCase();
+        if (msgType === 'text') {
+          handleTextIncoming(userId, replyToken, String(msg.text || '').trim());
+          return;
+        }
+        if (msgType === 'image') {
+          handleImageIncoming(userId, replyToken, msg.id);
+          return;
+        }
+        if (msgType === 'location') {
+          const ll = readLineLocationLatLng_(msg);
+          webhookExecLog_(
+            '[webhook] location ' +
+              JSON.stringify({
+                userPrefix: String(userId).slice(0, 10),
+                lat: ll.lat,
+                lng: ll.lng
+              })
+          );
+          handleLocationIncoming(userId, replyToken, ll.lat, ll.lng);
+          return;
+        }
+
+        if (replyToken) {
+          replyText(
+            replyToken,
+            '⚠️ このメッセージ形式には未対応です（type: ' +
+              String(msg.type || '?') +
+              '）。\n協力者の投稿では「＋」→「位置情報」から📍付きで送ってください。'
+          );
+        }
+      } catch (innerErr) {
+        webhookExecErr_('[doPost] event handler ' + String(innerErr && innerErr.message ? innerErr.message : innerErr));
+        try {
+          const rt = event.replyToken;
+          if (rt) {
+            replyText(rt, '⚠️ 処理中にエラーが発生しました。しばらくしてからもう一度お試しください。');
+          }
+        } catch (replyErr) {
+          webhookExecErr_('[doPost] error reply ' + String(replyErr && replyErr.message ? replyErr.message : replyErr));
+        }
+      } finally {
+        if (lockHeld) {
+          try {
+            lock.releaseLock();
+          } catch (e) {
+            /* ignore */
+          }
+        }
       }
     });
 
@@ -160,7 +294,7 @@ function doPost(e) {
       .createTextOutput(JSON.stringify({ status: 'ok' }))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
-    console.error('[doPost]', err);
+    webhookExecErr_('[doPost] ' + String(err && err.message ? err.message : err));
     return ContentService
       .createTextOutput(JSON.stringify({ status: 'error', message: err.message }))
       .setMimeType(ContentService.MimeType.JSON);
@@ -184,6 +318,22 @@ function handleTextIncoming(userId, replyToken, text) {
   }
   if (/^ヘルプ$/.test(text) || /^help$/i.test(text)) {
     replyText(replyToken, buildHelpMessage(userId));
+    return;
+  }
+  if (/^店\s+\S/.test(text) || /^店舗\s+\S/.test(text)) {
+    const rest = text.trim().replace(/^店舗\s+/, '').replace(/^店\s+/, '');
+    handleRegisterCommand(userId, replyToken, '登録 ' + rest);
+    return;
+  }
+  if (/^(店|店舗)$/.test(text)) {
+    const uEarly = getUserRecord(userId);
+    if (uEarly && uEarly.isActive !== false) {
+      replyText(replyToken, 'すでに登録済みです。「登録確認」でロールを確認できます。');
+      return;
+    }
+    setSession(userId, STEP_AWAITING_REGISTER_STORE_ID, {});
+    replyText(replyToken,
+      '店舗の store_id（スプレッドシートの店舗マスタと同じ表記）を、次の1通だけ送ってください。\n例：風まち（または store_001）');
     return;
   }
   if (/^登録/.test(text)) {
@@ -216,6 +366,12 @@ function handleTextIncoming(userId, replyToken, text) {
     }
   }
 
+  const sessRegister = getSession(userId);
+  if (sessRegister.step === STEP_AWAITING_REGISTER_STORE_ID) {
+    handleRegisterCommand(userId, replyToken, '登録 ' + text.trim());
+    return;
+  }
+
   const user = getUserRecord(userId);
   if (!user || user.isActive === false) {
     replyText(replyToken, buildUnknownUserMessage(userId));
@@ -246,7 +402,21 @@ function handleTextIncoming(userId, replyToken, text) {
 
   flushExpiredPending();
 
+  if (user.role === ROLE_STORE && getSession(userId).step === STEP_AWAITING_CATEGORY) {
+    replyText(replyToken, 'カテゴリをボタンから選んでください👇');
+    return;
+  }
+
   if (user.role === ROLE_STORE) {
+    const sStore = getSession(userId);
+    if (
+      sStore.step === STEP_AWAITING_CONTENT &&
+      sStore.payload.lat != null &&
+      sStore.payload.lng != null
+    ) {
+      handleContributorContentText(userId, replyToken, user, text);
+      return;
+    }
     handleStoreContentText(userId, replyToken, user, text);
   } else if (user.role === ROLE_OPERATOR) {
     handleOperatorContentText(userId, replyToken, user, text);
@@ -256,7 +426,8 @@ function handleTextIncoming(userId, replyToken, text) {
 }
 
 function handleImageIncoming(userId, replyToken, messageId) {
-  flushExpiredPending();
+  // 画像受信時は現在のユーザーの pending を先に使うため、自分自身をフラッシュ対象から除く
+  flushExpiredPending(userId);
 
   const user = getUserRecord(userId);
   if (!user || user.isActive === false) {
@@ -264,10 +435,20 @@ function handleImageIncoming(userId, replyToken, messageId) {
     return;
   }
 
-  if (user.role === ROLE_CONTRIBUTOR) {
+  const sessImg = getSession(userId);
+  const inGpsContentFlow =
+    sessImg.payload.lat != null &&
+    sessImg.payload.lng != null &&
+    (user.role === ROLE_CONTRIBUTOR ||
+      (user.role === ROLE_STORE && sessImg.step === STEP_AWAITING_CONTENT));
+
+  if (user.role === ROLE_CONTRIBUTOR || inGpsContentFlow) {
     const sess = getSession(userId);
     if (sess.payload.lat == null || sess.payload.lng == null) {
-      replyText(replyToken, '先に📍位置情報メッセージを送ってください。');
+      replyText(
+        replyToken,
+        '先に📍位置情報メッセージを送ってください。\n「位置を受け取りました」のあとに写真を送ってください。'
+      );
       return;
     }
     handleContributorImage(userId, replyToken, user, messageId);
@@ -284,27 +465,96 @@ function handleImageIncoming(userId, replyToken, messageId) {
   }
 
   if (user.role === ROLE_STORE) {
-    mergeImageWithPendingThenAskCategory(userId, replyToken, user, imageUrl);
+    const pendingForImg = loadPending(userId);
+    if (pendingForImg && pendingForImg.message) {
+      // テキストが先に届いていた → 通常のマージフロー
+      mergeImageWithPendingThenAskCategory(userId, replyToken, user, imageUrl);
+    } else if (pendingForImg && pendingForImg.imageUrl) {
+      // すでに画像pending あり → 上書き保存して続行
+      savePending(userId, user.fixedStoreId || '', '', imageUrl);
+      replyText(replyToken,
+        `📸 写真を更新しました。テキストを送るとセットで反映されます（${PENDING_EXPIRE_MS / 60000}分以内）\nテキスト不要ならそのまま待つとカテゴリ選択に進みます。`);
+    } else {
+      // 画像が先に届いた → imageUrl を pending に保存してテキストを待つ
+      savePending(userId, user.fixedStoreId || '', '', imageUrl);
+      replyText(replyToken,
+        `📸 写真を受け付けました。テキストを送るとセットで反映されます（${PENDING_EXPIRE_MS / 60000}分以内）\nテキスト不要ならそのまま待つとカテゴリ選択に進みます。`);
+    }
   } else {
     mergeImageWithPendingThenAskSpot(userId, replyToken, user, imageUrl);
   }
 }
 
 function handleLocationIncoming(userId, replyToken, lat, lng) {
-  const user = getUserRecord(userId);
-  if (!user || user.isActive === false) {
-    replyText(replyToken, buildUnknownUserMessage(userId));
-    return;
+  try {
+    const latNum = lat != null && lat !== '' ? Number(lat) : NaN;
+    const lngNum = lng != null && lng !== '' ? Number(lng) : NaN;
+    if (!isFinite(latNum) || !isFinite(lngNum)) {
+      replyText(
+        replyToken,
+        '⚠️ 位置を認識できませんでした。\n' +
+          'LINEの入力欄「＋」→「位置情報」から送る📍付きの「位置情報」メッセージにしてください。\n' +
+          '（地図アプリのURL・住所の文字だけでは届きません）'
+      );
+      return;
+    }
+
+    const user = getUserRecord(userId);
+    if (!user || user.isActive === false) {
+      replyText(replyToken, buildUnknownUserMessage(userId));
+      return;
+    }
+
+    // 店舗登録直後の座標設定フロー
+    const sessLoc = getSession(userId);
+    if (sessLoc.step === STEP_AWAITING_STORE_LOCATION) {
+      const storeId = (sessLoc.payload && sessLoc.payload.storeId) ? sessLoc.payload.storeId : (user.fixedStoreId || '');
+      saveStoreCoordsToMaster(storeId, latNum, lngNum);
+      deleteSession(userId);
+      replyText(replyToken,
+        `📍 位置情報を登録しました（${storeId}）\n` +
+        `これでライブ投稿が可能になりました🎉\n\n` +
+        `📷写真・短文を送ってカテゴリを選ぶと地図に表示されます。`);
+      return;
+    }
+
+    if (user.role !== ROLE_CONTRIBUTOR && user.role !== ROLE_STORE) {
+      replyText(replyToken, '位置情報投稿は「店舗」または「協力者」登録のアカウントで使えます。');
+      return;
+    }
+    setSession(userId, STEP_AWAITING_CONTENT, {
+      text: '', imageUrl: '', lat: latNum, lng: lngNum, spotId: '', spotName: ''
+    });
+    webhookExecLog_(
+      '[loc] bot_sessions saved ok ' +
+        JSON.stringify({
+          userPrefix: normalizeWebhookUserIdForSheet_(userId).slice(0, 10),
+          lat: latNum,
+          lng: lngNum,
+          role: user.role
+        })
+    );
+    const tail =
+      user.role === ROLE_STORE
+        ? '\n（店舗の移動中の投稿としてマップに表示されます）'
+        : '';
+    replyText(
+      replyToken,
+      '📍位置を受け取りました。\n続けて写真と短文（50文字以内）を送ってください📸\n（どちら先でもOK）' + tail
+    );
+  } catch (err) {
+    var detail = String(err.message || err);
+    webhookExecErr_('[handleLocationIncoming] ' + detail);
+    replyText(
+      replyToken,
+      '⚠️ 位置の保存に失敗しました（スプレッドシートへ書き込めませんでした）。\n\n' +
+        '管理者は次を確認してください:\n' +
+        '・GAS「プロジェクトの設定」→「スクリプトプロパティ」に **SHEET_ID** があるか（**新デプロイ後も**同じプロジェクトか）\n' +
+        '・その表を、**ウェブアプリをデプロイしたGoogleアカウント**に「編集者」で共有しているか\n' +
+        '・**bot_sessions** シートが保護されておらず、A〜D列に書けるか\n' +
+        '・GASの「実行数」でこのリクエストのログに表示されたエラー内容'
+    );
   }
-  if (user.role !== ROLE_CONTRIBUTOR) {
-    replyText(replyToken, '位置情報投稿は「協力者」登録のアカウントのみ使えます。');
-    return;
-  }
-  setSession(userId, STEP_AWAITING_CONTENT, {
-    text: '', imageUrl: '', lat, lng, spotId: '', spotName: ''
-  });
-  replyText(replyToken,
-    '📍位置を受け取りました。\n続けて写真と短文（50文字以内）を送ってください📸\n（どちら先でもOK）');
 }
 
 // ==================================================================
@@ -312,17 +562,39 @@ function handleLocationIncoming(userId, replyToken, lat, lng) {
 // ==================================================================
 
 function handleStoreContentText(userId, replyToken, user, text) {
+  const s0 = getSession(userId);
+  if (s0.payload.lat != null && s0.payload.lng != null) {
+    deleteSession(userId);
+  }
   const truncated = text.substring(0, MAX_MESSAGE_LENGTH);
-  savePending(userId, user.fixedStoreId, truncated);
+
+  // 画像が先に届いていた場合はテキストを合わせてカテゴリへ即進む
+  const pendingImg = loadPending(userId);
+  if (pendingImg && pendingImg.imageUrl) {
+    deletePending(userId);
+    const prev = getSession(userId).payload || {};
+    setSession(userId, STEP_AWAITING_CATEGORY, {
+      text: truncated,
+      imageUrl: pendingImg.imageUrl,
+      lat: prev.lat != null ? prev.lat : null,
+      lng: prev.lng != null ? prev.lng : null,
+      spotId: prev.spotId || '',
+      spotName: prev.spotName || ''
+    });
+    replyWithCategoryQuickReply(replyToken, '内容を確認しました。カテゴリを選んでください👇');
+    return;
+  }
+
+  // テキストを pending に保存して画像を待つ
+  savePending(userId, user.fixedStoreId || '', truncated);
   replyText(replyToken,
     `📝 受け付けました「${truncated}」\n続けて写真を送るとセットで反映されます📸（${PENDING_EXPIRE_MS / 60000}分以内）\n写真不要ならそのまま待つとカテゴリ選択に進みます。`
   );
 }
 
 function mergeImageWithPendingThenAskCategory(userId, replyToken, user, imageUrl) {
-  const pending = loadPending(userId);
+  const pending = loadPendingWithGrace(userId); // 期限切れでも猶予内なら取得
   const text = pending ? String(pending.message || '') : '';
-  if (pending) deletePending(userId);
 
   const prev = getSession(userId).payload || {};
   setSession(userId, STEP_AWAITING_CATEGORY, {
@@ -338,9 +610,8 @@ function mergeImageWithPendingThenAskCategory(userId, replyToken, user, imageUrl
 }
 
 function mergeImageWithPendingThenAskSpot(userId, replyToken, user, imageUrl) {
-  const pending = loadPending(userId);
-  const text = pending ? String(pending.message || '') : '';
-  if (pending) deletePending(userId);
+  const pending = loadPendingWithGrace(userId); // 期限切れでも猶予内なら取得
+  const text = pending ? String(pending.message || '')  : '';
 
   if (!text && !imageUrl) {
     replyText(replyToken, 'テキストか画像を送ってください。');
@@ -375,8 +646,15 @@ function handleOperatorContentText(userId, replyToken, user, text) {
 
 function handleContributorContentText(userId, replyToken, user, text) {
   const sess = getSession(userId);
-  if (sess.payload.lat == null) {
-    replyText(replyToken, 'まずLINEの「📍位置情報」メッセージを送信してください。');
+  if (sess.payload.lat == null || sess.payload.lng == null) {
+    replyText(
+      replyToken,
+      '協力者の投稿は📍位置情報が先です。\n' +
+        '1) 「＋」→「位置情報」で送る\n' +
+        '2) 「📍位置を受け取りました」と返ってくるのを待つ\n' +
+        '3) そのあとに短文や写真を送る\n' +
+        '※位置と同時・直後のテキストは先に処理されないことがあります。返信が来てから送ってください。'
+    );
     return;
   }
   if (sess.step === STEP_AWAITING_CATEGORY) {
@@ -440,16 +718,25 @@ function finalizePostWithCategory(userId, replyToken, user, category) {
   let spotIdOut = spotId || '';
 
   if (user.role === ROLE_STORE) {
-    sourceType = SOURCE_FIXED;
     storeId = user.fixedStoreId || '';
-    const c = getStoreCoordsFromMaster(storeId);
-    if (!c) {
-      replyText(replyToken, `店舗座標が見つかりません（store_id: ${storeId}）。管理者に確認してください。`);
-      deleteSession(userId);
-      return;
+    const latNum = lat != null ? Number(lat) : NaN;
+    const lngNum = lng != null ? Number(lng) : NaN;
+    const hasGps = !isNaN(latNum) && !isNaN(lngNum);
+    if (hasGps) {
+      sourceType = SOURCE_GPS;
+      finalLat = latNum;
+      finalLng = lngNum;
+    } else {
+      sourceType = SOURCE_FIXED;
+      const c = getStoreCoordsFromMaster(storeId);
+      if (!c) {
+        replyText(replyToken, `店舗座標が見つかりません（store_id: ${storeId}）。管理者に確認してください。`);
+        deleteSession(userId);
+        return;
+      }
+      finalLat = c.lat;
+      finalLng = c.lng;
     }
-    finalLat = c.lat;
-    finalLng = c.lng;
   } else if (user.role === ROLE_OPERATOR) {
     sourceType = SOURCE_SELECTED;
     if (finalLat == null || finalLng == null) {
@@ -492,7 +779,7 @@ function finalizePostWithCategory(userId, replyToken, user, category) {
 // ==================================================================
 
 function appendPostRow(row) {
-  const ss = SpreadsheetApp.openById(getWebhookSheetId_());
+  const ss = openWebhookSpreadsheet_();
   let sheet = ss.getSheetByName(POSTS_SHEET_NAME);
   if (!sheet) {
     ensurePostsSheet(ss);
@@ -542,7 +829,7 @@ function parseUserRow(row) {
     const activeCell = row[3];
     const isActive = activeCell !== false && String(activeCell || 'TRUE').toUpperCase() !== 'FALSE';
     return {
-      userId: row[0],
+      userId: normalizeWebhookUserIdForSheet_(row[0]),
       role: bStr,
       fixedStoreId: row[2] != null ? String(row[2]).trim() : '',
       isActive,
@@ -552,7 +839,7 @@ function parseUserRow(row) {
   }
 
   return {
-    userId: row[0],
+    userId: normalizeWebhookUserIdForSheet_(row[0]),
     role: ROLE_STORE,
     fixedStoreId: bStr,
     isActive: true,
@@ -566,7 +853,7 @@ function getUserRecord(userId) {
   if (!sheet) return null;
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === userId) return parseUserRow(data[i]);
+    if (sheetRowUserIdMatches_(data[i][0], userId)) return parseUserRow(data[i]);
   }
   return null;
 }
@@ -575,10 +862,11 @@ function saveUserRecord(userId, role, fixedStoreId) {
   const sheet = getUserMapSheet(true);
   const data = sheet.getDataRange().getValues();
   const now = new Date();
+  const uid = normalizeWebhookUserIdForSheet_(userId);
 
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === userId) {
-      sheet.getRange(i + 1, 2, i + 1, 6).setValues([[
+    if (sheetRowUserIdMatches_(data[i][0], uid)) {
+      sheet.getRange(i + 1, 2, 1, 5).setValues([[
         role,
         fixedStoreId || '',
         true,
@@ -588,7 +876,7 @@ function saveUserRecord(userId, role, fixedStoreId) {
       return;
     }
   }
-  sheet.appendRow([userId, role, fixedStoreId || '', true, '', now]);
+  sheet.appendRow([uid, role, fixedStoreId || '', true, '', now]);
 }
 
 function deleteUserFromMap(userId) {
@@ -596,7 +884,7 @@ function deleteUserFromMap(userId) {
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
   for (let i = data.length - 1; i >= 1; i--) {
-    if (data[i][0] === userId) {
+    if (sheetRowUserIdMatches_(data[i][0], userId)) {
       sheet.deleteRow(i + 1);
       return;
     }
@@ -604,12 +892,14 @@ function deleteUserFromMap(userId) {
 }
 
 function lookupUserIdByFixedStoreId(storeId) {
+  const want = normalizeStoreKeyForWebhook_(storeId);
+  if (!want) return null;
   const sheet = getUserMapSheet(false);
   if (!sheet) return null;
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
     const u = parseUserRow(data[i]);
-    if (u && u.role === ROLE_STORE && u.fixedStoreId === storeId) return u.userId;
+    if (u && u.role === ROLE_STORE && normalizeStoreKeyForWebhook_(u.fixedStoreId) === want) return u.userId;
   }
   return null;
 }
@@ -636,7 +926,7 @@ function getAllUserMapRows() {
 }
 
 function getUserMapSheet(createIfMissing) {
-  const ss = SpreadsheetApp.openById(getWebhookSheetId_());
+  const ss = openWebhookSpreadsheet_();
   let sheet = ss.getSheetByName(USER_MAP_SHEET_NAME);
   if (!sheet && createIfMissing) {
     sheet = insertSheetAtEnd_(ss, USER_MAP_SHEET_NAME);
@@ -658,7 +948,7 @@ function getSession(userId) {
   }
   const data = sheet.getDataRange().getValues();
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] !== userId) continue;
+    if (!sheetRowUserIdMatches_(data[i][0], userId)) continue;
     let payload = {};
     try {
       payload = data[i][2] ? JSON.parse(String(data[i][2])) : {};
@@ -675,14 +965,15 @@ function setSession(userId, step, payload) {
   const data = sheet.getDataRange().getValues();
   const json = JSON.stringify(payload || {});
   const now = new Date();
+  const uid = normalizeWebhookUserIdForSheet_(userId);
 
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === userId) {
-      sheet.getRange(i + 1, 2, i + 1, 4).setValues([[step, json, now]]);
+    if (sheetRowUserIdMatches_(data[i][0], uid)) {
+      sheet.getRange(i + 1, 2, 1, 3).setValues([[step, json, now]]);
       return;
     }
   }
-  sheet.appendRow([userId, step, json, now]);
+  sheet.appendRow([uid, step, json, now]);
 }
 
 function deleteSession(userId) {
@@ -690,7 +981,7 @@ function deleteSession(userId) {
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
   for (let i = data.length - 1; i >= 1; i--) {
-    if (data[i][0] === userId) {
+    if (sheetRowUserIdMatches_(data[i][0], userId)) {
       sheet.deleteRow(i + 1);
       return;
     }
@@ -698,7 +989,7 @@ function deleteSession(userId) {
 }
 
 function getBotSessionSheet(createIfMissing) {
-  const ss = SpreadsheetApp.openById(getWebhookSheetId_());
+  const ss = openWebhookSpreadsheet_();
   let sheet = ss.getSheetByName(BOT_SESSIONS_SHEET_NAME);
   if (!sheet && createIfMissing) {
     sheet = insertSheetAtEnd_(ss, BOT_SESSIONS_SHEET_NAME);
@@ -714,7 +1005,7 @@ function getBotSessionSheet(createIfMissing) {
 // ==================================================================
 
 function getVenueSpots() {
-  const ss = SpreadsheetApp.openById(getWebhookSheetId_());
+  const ss = openWebhookSpreadsheet_();
   const sheet = ss.getSheetByName(VENUE_SPOTS_SHEET_NAME);
   if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
@@ -749,14 +1040,14 @@ function buildSpotListMessage() {
 // ==================================================================
 
 function getStoreCoordsFromMaster(storeId) {
-  const ss = SpreadsheetApp.openById(getWebhookSheetId_());
+  const ss = openWebhookSpreadsheet_();
   const sheet = ss.getSheets()[0];
   const data = sheet.getDataRange().getValues();
-  const sidWant = String(storeId).trim();
+  const sidWant = normalizeStoreKeyForWebhook_(storeId);
 
   for (let i = 1; i < data.length; i++) {
     const sid = data[i][MASTER_COL_STORE_ID];
-    if (sid != null && String(sid).trim() === sidWant) {
+    if (sid != null && normalizeStoreKeyForWebhook_(sid) === sidWant) {
       const lat = data[i][MASTER_COL_LAT];
       const lng = data[i][MASTER_COL_LNG];
       if (lat == null || lng == null) continue;
@@ -766,23 +1057,61 @@ function getStoreCoordsFromMaster(storeId) {
   return null;
 }
 
+/**
+ * 店舗マスタに storeId の座標を書き込む。
+ * 既存行があれば lat/lng 列を更新、なければ最低限の列で行を追加する。
+ */
+function saveStoreCoordsToMaster(storeId, lat, lng) {
+  const ss = openWebhookSpreadsheet_();
+  const sheet = ss.getSheets()[0];
+  const data = sheet.getDataRange().getValues();
+  const sidWant = normalizeStoreKeyForWebhook_(storeId);
+
+  for (let i = 1; i < data.length; i++) {
+    const sid = data[i][MASTER_COL_STORE_ID];
+    if (sid != null && normalizeStoreKeyForWebhook_(sid) === sidWant) {
+      sheet.getRange(i + 1, MASTER_COL_LAT + 1).setValue(lat);
+      sheet.getRange(i + 1, MASTER_COL_LNG + 1).setValue(lng);
+      webhookExecLog_('[saveStoreCoordsToMaster] updated row ' + (i + 1) + ' for ' + storeId);
+      return;
+    }
+  }
+
+  // 既存行なし → 新規追加（列数はマスタシートの現在の列数に合わせて空埋め）
+  const numCols = Math.max(sheet.getLastColumn(), MASTER_COL_STORE_ID + 1);
+  const newRow = new Array(numCols).fill('');
+  newRow[MASTER_COL_STORE_ID] = storeId;
+  newRow[MASTER_COL_LAT] = lat;
+  newRow[MASTER_COL_LNG] = lng;
+  // 店舗名は storeId をそのまま使う（後でスプレッドシートで編集可）
+  if (numCols > 0) newRow[0] = storeId;
+  sheet.appendRow(newRow);
+  webhookExecLog_('[saveStoreCoordsToMaster] appended new row for ' + storeId);
+}
+
 // ==================================================================
 // pending_posts
 // ==================================================================
 
-function savePending(userId, storeKey, message) {
+/**
+ * pending_posts に保存。imageUrl を省略すると既存行の image_url は維持する。
+ * message を省略（''）すると既存行の message は維持する。
+ */
+function savePending(userId, storeKey, message, imageUrl) {
+  const uid = normalizeWebhookUserIdForSheet_(userId);
   const sheet = getPendingSheet(true);
   const data = sheet.getDataRange().getValues();
   const now = new Date();
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] === userId) {
+    if (sheetRowUserIdMatches_(data[i][0], uid)) {
       sheet.getRange(i + 1, 2).setValue(storeKey);
-      sheet.getRange(i + 1, 3).setValue(message);
+      if (message !== undefined && message !== null) sheet.getRange(i + 1, 3).setValue(message);
       sheet.getRange(i + 1, 4).setValue(now);
+      if (imageUrl !== undefined && imageUrl !== null) sheet.getRange(i + 1, 5).setValue(imageUrl);
       return;
     }
   }
-  sheet.appendRow([userId, storeKey, message, now]);
+  sheet.appendRow([uid, storeKey, message || '', now, imageUrl || '']);
 }
 
 function loadPending(userId) {
@@ -791,10 +1120,41 @@ function loadPending(userId) {
   const data = sheet.getDataRange().getValues();
   const now = Date.now();
   for (let i = 1; i < data.length; i++) {
-    if (data[i][0] !== userId) continue;
+    if (!sheetRowUserIdMatches_(data[i][0], userId)) continue;
     const savedAt = data[i][3] ? new Date(data[i][3]).getTime() : 0;
-    if (now - savedAt > PENDING_EXPIRE_MS) return null;
-    return { storeId: data[i][1], message: data[i][2] };
+    if (now - savedAt > PENDING_EXPIRE_MS) {
+      // 期限切れでも行は残す（flushExpiredPending が別途消す）
+      return null;
+    }
+    return { storeId: data[i][1], message: data[i][2], imageUrl: data[i][4] ? String(data[i][4]) : '' };
+  }
+  return null;
+}
+
+/**
+ * 期限切れを考慮してテキストを取り出す（画像到着時のテキスト消失対策）。
+ * PENDING_EXPIRE_MS を過ぎていても PENDING_LOAD_GRACE_MS 以内なら返す。
+ * 返した場合はその行を削除する。
+ */
+const PENDING_LOAD_GRACE_MS = 5 * 60 * 1000; // 5分まで猶予
+
+function loadPendingWithGrace(userId) {
+  const sheet = getPendingSheet(false);
+  if (!sheet) return null;
+  const data = sheet.getDataRange().getValues();
+  const now = Date.now();
+  for (let i = 1; i < data.length; i++) {
+    if (!sheetRowUserIdMatches_(data[i][0], userId)) continue;
+    const savedAt = data[i][3] ? new Date(data[i][3]).getTime() : 0;
+    const age = now - savedAt;
+    if (age > PENDING_LOAD_GRACE_MS) return null;
+    const result = {
+      storeId: data[i][1],
+      message: data[i][2],
+      imageUrl: data[i][4] ? String(data[i][4]) : ''
+    };
+    sheet.deleteRow(i + 1);
+    return result;
   }
   return null;
 }
@@ -804,14 +1164,19 @@ function deletePending(userId) {
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
   for (let i = data.length - 1; i >= 1; i--) {
-    if (data[i][0] === userId) {
+    if (sheetRowUserIdMatches_(data[i][0], userId)) {
       sheet.deleteRow(i + 1);
       return;
     }
   }
 }
 
-function flushExpiredPending() {
+/**
+ * 期限切れの pending 行を処理してカテゴリ選択へ遷移させる。
+ * excludeUserId を指定した場合、そのユーザーの行はスキップする
+ * （画像受信時に自分の pending を先に利用させるため）。
+ */
+function flushExpiredPending(excludeUserId) {
   const sheet = getPendingSheet(false);
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
@@ -822,49 +1187,67 @@ function flushExpiredPending() {
     if (nowMs - savedAt <= PENDING_EXPIRE_MS) continue;
 
     const userId = data[i][0];
-    const message = data[i][2] ? String(data[i][2]) : '';
+
+    // 画像受信など、呼び出し元が自分自身の pending を後で使う場合はスキップ
+    if (excludeUserId && sheetRowUserIdMatches_(userId, excludeUserId)) continue;
+    const message  = data[i][2] ? String(data[i][2]) : '';
+    const imageUrl = data[i][4] ? String(data[i][4]) : '';
 
     sheet.deleteRow(i + 1);
 
-    if (!message.trim()) continue;
+    // テキストも画像も空なら何もしない
+    if (!message.trim() && !imageUrl) continue;
 
     const user = getUserRecord(userId);
     if (!user || user.isActive === false) continue;
 
+    const promptMsg = imageUrl && !message.trim()
+      ? '写真を確定しました。カテゴリを選んでください👇'
+      : message.trim() && !imageUrl
+        ? 'テキストを確定しました。カテゴリを選んでください👇'
+        : 'カテゴリを選んでください👇';
+
     if (user.role === ROLE_STORE) {
-      setSession(userId, STEP_AWAITING_CATEGORY, {
-        text: message, imageUrl: '', lat: null, lng: null, spotId: '', spotName: '',
-        storeId: user.fixedStoreId || ''
-      });
-      replyWithCategoryQuickReplyPush(userId, 'テキストを確定しました。カテゴリを選んでください👇');
+      const sess = getSession(userId);
+      if (sess.payload.lat != null && sess.payload.lng != null) {
+        setSession(userId, STEP_AWAITING_CATEGORY, Object.assign({}, sess.payload, {
+          text: message, imageUrl
+        }));
+      } else {
+        setSession(userId, STEP_AWAITING_CATEGORY, {
+          text: message, imageUrl, lat: null, lng: null, spotId: '', spotName: '',
+          storeId: user.fixedStoreId || ''
+        });
+      }
+      replyWithCategoryQuickReplyPush(userId, promptMsg);
     } else if (user.role === ROLE_OPERATOR) {
       setSession(userId, STEP_AWAITING_SPOT, {
-        text: message, imageUrl: '', lat: null, lng: null, spotId: '', spotName: ''
+        text: message, imageUrl, lat: null, lng: null, spotId: '', spotName: ''
       });
       pushText(userId,
         buildSpotListMessage().indexOf('⚠️') === 0
           ? buildSpotListMessage()
-          : '📝テキスト確定しました。\n' + buildSpotListMessage()
+          : '📝内容を確定しました。\n' + buildSpotListMessage()
       );
     } else if (user.role === ROLE_CONTRIBUTOR) {
       const sess = getSession(userId);
-      if (sess.payload.lat == null) continue;
+      if (sess.payload.lat == null || sess.payload.lng == null) continue;
       setSession(userId, STEP_AWAITING_CATEGORY, Object.assign({}, sess.payload, {
-        text: message, imageUrl: ''
+        text: message, imageUrl
       }));
-      replyWithCategoryQuickReplyPush(userId, 'カテゴリを選んでください👇');
+      replyWithCategoryQuickReplyPush(userId, promptMsg);
     }
   }
 }
 
 function getPendingSheet(createIfMissing) {
-  const ss = SpreadsheetApp.openById(getWebhookSheetId_());
+  const ss = openWebhookSpreadsheet_();
   let sheet = ss.getSheetByName(PENDING_SHEET_NAME);
   if (!sheet && createIfMissing) {
     sheet = insertSheetAtEnd_(ss, PENDING_SHEET_NAME);
-    sheet.appendRow(['userId', 'store_id', 'message', 'saved_at']);
+    sheet.appendRow(['userId', 'store_id', 'message', 'saved_at', 'image_url']);
     sheet.setFrozenRows(1);
-    sheet.getRange('A1:D1').setBackground('#FFA000').setFontColor('#FFFFFF').setFontWeight('bold');
+    sheet.getRange('A1:E1').setBackground('#FFA000').setFontColor('#FFFFFF').setFontWeight('bold');
   }
   return sheet;
 }
@@ -874,15 +1257,23 @@ function getPendingSheet(createIfMissing) {
 // ==================================================================
 
 function replyText(replyToken, text) {
-  if (!replyToken) return;
+  if (!replyToken) {
+    webhookExecErr_('[replyText] missing replyToken');
+    return;
+  }
   const payload = { replyToken, messages: [{ type: 'text', text }] };
-  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
+  const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
     contentType: 'application/json',
     headers: { Authorization: 'Bearer ' + getWebhookLineToken_() },
     payload: JSON.stringify(payload),
     muteHttpExceptions: true
   });
+  const code = res.getResponseCode();
+  webhookExecLog_('[replyText] LINE reply API http=' + code);
+  if (code < 200 || code >= 300) {
+    webhookExecErr_('[replyText] http=' + code + ' body=' + res.getContentText().slice(0, 500));
+  }
 }
 
 function pushText(userId, text) {
@@ -922,14 +1313,22 @@ function buildCategoryQuickReply() {
 }
 
 function replyMessages(replyToken, messages) {
-  if (!replyToken) return;
-  UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
+  if (!replyToken) {
+    webhookExecErr_('[replyMessages] missing replyToken');
+    return;
+  }
+  const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
     contentType: 'application/json',
     headers: { Authorization: 'Bearer ' + getWebhookLineToken_() },
     payload: JSON.stringify({ replyToken, messages }),
     muteHttpExceptions: true
   });
+  const code = res.getResponseCode();
+  webhookExecLog_('[replyMessages] LINE reply API http=' + code);
+  if (code < 200 || code >= 300) {
+    webhookExecErr_('[replyMessages] http=' + code + ' body=' + res.getContentText().slice(0, 500));
+  }
 }
 
 function parseCategoryFromText(text) {
@@ -952,13 +1351,17 @@ function canRegisterSpecialRoles(userId, passwordArg) {
 }
 
 function handleRegisterCommand(userId, replyToken, text) {
-  const parts = text.split(/\s+/);
+  let t = String(text).trim();
+  if (t.startsWith('登録') && t.length > 2 && t.charAt(2) !== ' ' && t.charAt(2) !== '　') {
+    t = '登録 ' + t.slice(2);
+  }
+  const parts = t.split(/\s+/).filter(Boolean);
   const sub = parts[1] ? parts[1].trim() : '';
   const specialPw = parts.slice(2).join(' ') || '';
 
   if (!sub) {
     replyText(replyToken,
-      '⚠️ 使い方\n店舗: 登録 store_001\n運営: 登録 運営（パスワード）\n協力: 登録 協力（パスワード）');
+      '⚠️ 使い方\n店舗: 「店 風まち」または「登録 風まち」（全角スペース可）／「店」→次にIDだけ／従来の英数字IDも可\n運営: 登録 運営（パスワード）\n協力: 登録 協力（パスワード）');
     return;
   }
 
@@ -984,15 +1387,20 @@ function handleRegisterCommand(userId, replyToken, text) {
     return;
   }
 
-  const storeId = sub;
-  if (!/^[\w.\-]+$/.test(storeId)) {
-    replyText(replyToken, '⚠️ store_id に使えない文字があります。');
+  const storeIdRaw = sub.replace(/\s+/g, ' ').trim();
+  if (!storeIdRaw || storeIdRaw.length > 64) {
+    replyText(replyToken, '⚠️ 店舗IDが空か長すぎます（64文字まで）。\nスプレッドシートの店舗マスタの store_id と同じ表記にしてください。');
     return;
   }
+  if (/[\r\n\x00]/.test(storeIdRaw)) {
+    replyText(replyToken, '⚠️ 改行など使えない文字が含まれます。');
+    return;
+  }
+  const storeId = storeIdRaw;
   const storePw = parts.length > 2 ? parts.slice(2).join(' ') : '';
   const regPw = getRegistrationPassword_();
   if (regPw && storePw !== regPw) {
-    replyText(replyToken, '🔒 登録パスワードが違います。\n例：登録 store_001（パスワード）');
+    replyText(replyToken, '🔒 登録パスワードが違います。\n例：登録 風まち（パスワード）');
     return;
   }
 
@@ -1003,10 +1411,14 @@ function handleRegisterCommand(userId, replyToken, text) {
   }
 
   saveUserRecord(userId, ROLE_STORE, storeId);
-  deleteSession(userId);
+  // 登録直後に位置情報を送ってもらい、店舗座標を自動登録するステップへ
+  setSession(userId, STEP_AWAITING_STORE_LOCATION, { storeId });
 
   replyText(replyToken,
-    `✅ 店舗登録しました（store:${storeId}）\n写真・短文→カテゴリでライブ投稿できます。\n※店舗座標はスプレッドシートで設定してください。`);
+    `✅ 店舗として登録しました（${storeId}）\n\n` +
+    `次に📍お店の位置情報を送ってください。\n` +
+    `LINEの入力欄「＋」→「位置情報」から現在地またはお店の場所を送ると座標が自動登録されます。\n\n` +
+    `後で送り直す場合も同じ手順でOKです。`);
 }
 
 function handleCheckCommand(userId, replyToken) {
@@ -1110,7 +1522,7 @@ function buildHelpMessage(userId) {
   const head =
     '📖 コマンド\nマイID / ヘルプ / 登録確認 / 登録解除\n\n' +
     '📍 登録\n' +
-    '・店舗: 登録 store_xxx\n' +
+    '・店舗: 「店 風まち」/「登録　風まち」（全角スペース可）ほか\n' +
     '・運営: 登録 運営 （管理者 or パスワードが必要な場合あり）\n' +
     '・協力: 登録 協力\n\n';
 
@@ -1121,7 +1533,9 @@ function buildHelpMessage(userId) {
       '🗺️ このあと投稿するには運営にロール割当をお願いします。\n' +
       'マップモデレーション: posts の isVisible を編集できます。';
   } else if (u.role === ROLE_STORE) {
-    flow = '📝 店舗投稿: 短文や写真→カテゴリ（ボタン）\n座標はスプレッドシート側のお店情報を使用します。';
+    flow =
+      '📝 店舗投稿: 短文や写真→カテゴリ（ボタン）\n座標はスプレッドシート側のお店情報を使用します。\n' +
+      '📍移動中の投稿: 先に位置情報→写真・短文→カテゴリ（現在地がマップに出ます）';
   } else if (u.role === ROLE_OPERATOR) {
     flow = '📝 運営投稿: 短文や写真→番号でスポット→カテゴリ\n⚠️ venue_spots にスポットを登録しておいてください';
   } else {
@@ -1246,6 +1660,59 @@ function logWebhookScriptPropertyKeys() {
     'YOUR_GOOGLE_SHEET_ID, YOUR_LINE_CHANNEL_ACCESS_TOKEN',
     '--- 試験用 --- WEBHOOK_CONFIG … ローカル試験のフォールバックのみ。本番は空のまま。'
   ].join('\n'));
+}
+
+/**
+ * エディタから1回実行。実行ログに接続・設定の可否を出す（秘密は出さない）。
+ * LINEで反応がなくてもGASに記録がない場合は、Webhook URL が別デプロイを指している可能性あり。
+ */
+function runWebhookHealthCheck() {
+  var idSet = !!getWebhookSheetId_();
+  webhookExecLog_('[health] SHEET_ID スクリプトプロパティ: ' + (idSet ? 'あり' : 'なし'));
+  if (!idSet) {
+    webhookExecLog_('[health] ここで止まります。プロジェクトの設定 → スクリプトプロパティに SHEET_ID を追加してください。');
+    return;
+  }
+  try {
+    var ss = openWebhookSpreadsheet_();
+    webhookExecLog_('[health] スプレッドシートを開けました: ' + ss.getName());
+    var bs = getBotSessionSheet(true);
+    webhookExecLog_('[health] bot_sessions 最終行: ' + bs.getLastRow());
+  } catch (e) {
+    webhookExecErr_('[health] スプレッドシート失敗: ' + String(e.message || e));
+    return;
+  }
+  var tok = getWebhookLineToken_();
+  webhookExecLog_('[health] LINE_CHANNEL_ACCESS_TOKEN: ' + (tok ? 'あり（長さ ' + tok.length + '）' : 'なし'));
+}
+
+// ==================================================================
+// タイムベーストリガー管理
+// ==================================================================
+
+/**
+ * flushExpiredPending を毎分実行するトリガーを設置する。
+ * GAS エディタから手動で1回だけ実行してください。
+ * （重複しないよう先に removePendingFlushTrigger を実行してからでも可）
+ */
+function installPendingFlushTrigger() {
+  // 既存の同名トリガーを削除してから追加（重複防止）
+  removePendingFlushTrigger();
+  ScriptApp.newTrigger('flushExpiredPending')
+    .timeBased()
+    .everyMinutes(1)
+    .create();
+  Logger.log('flushExpiredPending トリガーを設置しました（毎分）');
+}
+
+/**
+ * flushExpiredPending のトリガーをすべて削除する。
+ */
+function removePendingFlushTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(function(t) { return t.getHandlerFunction() === 'flushExpiredPending'; })
+    .forEach(function(t) { ScriptApp.deleteTrigger(t); });
+  Logger.log('flushExpiredPending トリガーを削除しました');
 }
 
 function testAppend() {
