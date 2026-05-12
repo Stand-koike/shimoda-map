@@ -55,8 +55,8 @@ sequenceDiagram
 
 **登録コマンド（テキスト）**
 
-- **店舗**: `store_id` は **マスタ先頭シートの store_id 列と同じ表記**（日本語可・例 `風まち`）。`登録　風まち` のように **全角スペース**でも可。略式: `店 風まち` / `店`→次にID／`登録store_xxx`（スペース無し）など。GAS・フロントは **連続空白を1つに正規化**して比較。最大64文字。パスワード運用時は語尾に付与。1 `store_id` は1ユーザーのみ。
-- **運営**: `登録 運営` または `登録 operator`。管理者 LINE ID または登録用パスワードが必要。
+- **店舗**: `store_id` は **マスタ先頭シートの store_id 列と同じ表記**（日本語可・例 `風まち`）。`登録　風まち` のように **全角スペース**でも可。略式: `店 風まち` / `店`→次にID／`登録store_xxx`（スペース無し）など。GAS・フロントは **連続空白を1つに正規化**して比較。最大64文字。**`REGISTRATION_PASSWORD` 設定時は**「登録 〇〇」の **次のメッセージでパスワードのみ**送信（従来どおり1行にまとめて送ることも可）。1 `store_id` は1ユーザーのみ。
+- **運営**: `登録 運営` または `登録 operator`。管理者 LINE ID はそのまま完了。**パスワード必須時**は続けて別メッセージでパスワード（1行にまとめることも可）。
 - **協力者**: `登録 協力` / `登録 協力者` / `登録 contributor`。同上。
 - **確認**: `登録確認` / **解除**: `登録解除`
 - **自分のID**: `マイID` / `my id`
@@ -104,7 +104,7 @@ sequenceDiagram
 | `bot_sessions` | `userId`, `step`, `payload_json`（テキスト仮・画像URL・lat/lng・spot 等） |
 | `pending Posts`（`pending_posts`） | テキスト先行時の短時間バッファ（`userId`, `store_id` キー列, `message`, `saved_at`） |
 
-`step` の例: `idle`, `awaiting_content`, `awaiting_spot`, `awaiting_category`, `awaiting_register_store_id`（店舗ID待ち・未登録向け。定数は `gas-line-webhook.js` 参照）。
+`step` の例: `idle`, `awaiting_content`, `awaiting_spot`, `awaiting_category`, `awaiting_register_store_id`（店舗ID待ち・未登録向け）, `awaiting_registration_password`（登録パスワードの別送信用・パスワード設定時）ほか（定数は `gas-line-webhook.js` 参照）。
 
 ---
 
@@ -136,7 +136,7 @@ GAS の `appendPostRow` の列順と、フロント `_parse` は **同じ並び*
 
 **TTL（GAS）**（投稿からの掲載目安）
 
-- 店舗: 3 時間 / 運営: 45 分 / 協力者: 22 分（`TTL_MS`）。
+- 店舗: 6 時間 / 運営: 3 時間 / 協力者: 1 時間（`TTL_MS`）。
 
 ---
 

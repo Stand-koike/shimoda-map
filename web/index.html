@@ -415,20 +415,22 @@
             filter: drop-shadow(0 2px 5px rgba(255,255,255,0.85));
         }
 
-        /* 神輿ルート — HTMLマーカー（立体的な浮遊演出） */
+        /* 神輿ルート — HTMLマーカー（画面上で縦を保つピン形状＋進行ベアリングは地図基準で維持） */
         .mikoshi-marker {
             position: relative;
             width: 72px;
-            height: 78px;
+            min-height: 96px;
+            height: auto;
             pointer-events: none;
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: flex-end;
+            --stem-color: #0288d1;
         }
         .mikoshi-marker-shadow {
             position: absolute;
-            bottom: 6px;
+            bottom: 2px;
             left: 50%;
             width: 42px;
             height: 12px;
@@ -443,8 +445,31 @@
         .mikoshi-marker-body {
             position: relative;
             z-index: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
             transform-origin: center bottom;
-            animation: mikoshi-float-tilt 2.8s ease-in-out infinite;
+            /* 視点ピッチに合わせた倒れ込み rotateX は使わず、画面上の縦立ちとの兼ね合いを優先 */
+            animation: mikoshi-float-pin 2.8s ease-in-out infinite;
+        }
+        .mikoshi-marker-head {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            position: relative;
+            z-index: 2;
+        }
+        .mikoshi-marker-stem {
+            width: 0;
+            height: 0;
+            margin-top: -6px;
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-top: 15px solid var(--stem-color);
+            filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.3));
+            pointer-events: none;
+            flex-shrink: 0;
         }
         .mikoshi-marker-img {
             width: 58px;
@@ -452,17 +477,28 @@
             display: block;
             filter: drop-shadow(0 6px 10px rgba(0, 60, 100, 0.35));
         }
-        @keyframes mikoshi-float-tilt {
-            0%, 100% {
-                transform: translateY(0) rotate(-5deg) perspective(120px) rotateX(4deg);
-            }
-            50% {
-                transform: translateY(-12px) rotate(5deg) perspective(120px) rotateX(-6deg);
-            }
+        @keyframes mikoshi-float-pin {
+            0%, 100% { transform: translateY(0); }
+            50%      { transform: translateY(-10px); }
         }
         @keyframes mikoshi-shadow-breathe {
             0%, 100% { transform: scaleX(1) scaleY(1); opacity: 0.85; }
             50% { transform: scaleX(0.75) scaleY(0.85); opacity: 0.55; }
+        }
+        @media (max-width: 767px) {
+            .mikoshi-marker {
+                width: 56px;
+                min-height: 82px;
+            }
+            .mikoshi-marker-img {
+                width: 46px;
+            }
+            .mikoshi-marker-stem {
+                margin-top: -5px;
+                border-left-width: 8px;
+                border-right-width: 8px;
+                border-top-width: 12px;
+            }
         }
 
         /* ============================================================
@@ -525,17 +561,22 @@
                 touch-action: pan-x; /* 横スクロールのみ、縦はマップへ */
             }
             .slide-card {
-                flex: 0 0 200px; height: 180px; border-radius: 14px;
+                flex: 0 0 180px; height: 162px; border-radius: 14px;
                 touch-action: manipulation;
             }
             .card-image-area { height: 55% !important; }
-            .card-info { padding: 8px 10px !important; }
-            .card-title { font-size: 13px !important; margin-bottom: 4px !important; }
-            .card-meta-row { gap: 4px !important; }
-            .card-status { font-size: 10px !important; padding: 2px 6px !important; }
-            .flash-news-tag { font-size: 10px !important; padding: 2px 6px !important; }
-            .card-arrow { width: 26px !important; height: 26px !important; bottom: 8px !important; right: 8px !important; font-size: 12px !important; }
-            .tag-chips { margin-top: 3px !important; gap: 3px !important; }
+            .card-info { padding: 6px 30px 22px 8px !important; }
+            .card-title { font-size: 12px !important; margin-bottom: 3px !important; }
+            .card-detail-block { margin-top: 2px !important; gap: 1px !important; }
+            .card-detail-line { font-size: 9px !important; }
+            .card-status--compact { font-size: 8px !important; padding: 1px 4px !important; }
+            .card-image-indicators { padding: 4px 6px !important; gap: 4px !important; }
+            .card-ind { min-width: 18px !important; height: 18px !important; font-size: 9px !important; }
+            .card-ind--status { width: 9px !important; height: 9px !important; min-width: 9px !important; }
+            .live-badge--card-top { font-size: 6px !important; padding: 0 4px !important; }
+            .card-arrow { width: 22px !important; height: 22px !important; bottom: 6px !important; right: 5px !important; font-size: 11px !important; }
+            .card-live-post--compact { margin-top: 2px !important; padding: 3px 5px !important; }
+            .tag-chips { margin-top: 2px !important; gap: 3px !important; }
             .tag-chip { font-size: 9px !important; padding: 2px 5px !important; }
             /* マップコントロールはカードパネルの右に配置。ボトムナビと被らないよう上げる */
             .map-controls { bottom: auto; top: 60px; right: 12px; }
@@ -563,17 +604,79 @@
                 scroll-snap-align: start; box-shadow: 0 5px 15px rgba(0,0,0,0.08);
             }
             .slide-card.active { transform: scale(1.02); border-color: var(--color-primary); box-shadow: var(--shadow-soft); }
+            .card-image-area { height: 65% !important; }
+            .card-emoji-placeholder { font-size: 60px !important; }
+            .card-info { padding: 15px 42px 15px 15px !important; }
+            .card-title { font-size: 16px !important; margin-bottom: 8px !important; }
+            .card-detail-block { margin-top: 4px !important; gap: 3px !important; }
+            .card-detail-line { font-size: 11px !important; }
+            .card-status--compact { font-size: 11px !important; padding: 3px 8px !important; }
+            .card-image-indicators { padding: 6px 8px !important; gap: 6px !important; }
+            .card-ind { min-width: 22px !important; height: 21px !important; font-size: 11px !important; }
+            .card-ind--status { width: 12px !important; height: 12px !important; min-width: 12px !important; }
+            .live-badge--card-top { font-size: 8px !important; padding: 2px 7px !important; }
+            .card-arrow {
+                width: 32px !important; height: 32px !important;
+                bottom: 15px !important; right: 15px !important; font-size: 14px !important;
+            }
+            .card-live-post--compact { margin-top: 5px !important; padding: 5px 8px !important; }
+            .tag-chips { margin-top: 6px !important; gap: 4px !important; }
+            .tag-chip { font-size: 10px !important; padding: 3px 8px !important; }
             .map-controls { bottom: 30px; }
         }
 
         /* カード内容 */
         .slide-card.active { border-color: var(--color-primary); }
-        .card-image-area { width: 100%; height: 65%; position: relative; overflow: hidden; background: #f7f7f7; }
+        .card-image-area { width: 100%; height: 62%; position: relative; overflow: hidden; background: #f7f7f7; }
         .card-thumb { width: 100%; height: 100%; object-fit: cover; }
-        .card-emoji-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 60px; background: var(--color-secondary); }
-        .card-info { flex: 1; padding: 15px; display: flex; flex-direction: column; justify-content: center; position: relative; z-index: 0; }
+        .card-emoji-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 48px; background: var(--color-secondary); }
+        /* 画像上：各フィールドの有無のみ（テキスト本文は出さない） */
+        .card-image-indicators {
+            position: absolute; left: 0; right: 0; bottom: 0;
+            display: flex; flex-wrap: wrap; align-items: center; gap: 5px;
+            padding: 5px 7px;
+            background: linear-gradient(to top, rgba(0,0,0,0.58) 0%, rgba(0,0,0,0.12) 55%, transparent 100%);
+            pointer-events: none;
+        }
+        .card-ind {
+            display: inline-flex; align-items: center; justify-content: center;
+            min-width: 20px; height: 19px; padding: 0 5px;
+            border-radius: 6px; background: rgba(255,255,255,0.94);
+            font-size: 10px; color: #444;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            flex-shrink: 0;
+        }
+        .card-ind--status {
+            width: 11px; height: 11px; min-width: 11px; padding: 0;
+            border-radius: 50%;
+            border: 2px solid rgba(255,255,255,0.95);
+        }
+        .card-ind--news { color: var(--color-accent); }
+        .card-ind--hours { color: var(--color-primary); }
+        .live-badge--card-top {
+            font-size: 7px; font-weight: bold; letter-spacing: 0.3px;
+            padding: 2px 6px; border-radius: 3px;
+            animation: none;
+        }
+        .card-info { flex: 1; padding: 10px 38px 10px 12px; display: flex; flex-direction: column; justify-content: flex-start; min-height: 0; position: relative; z-index: 0; }
         .card-hours-line { pointer-events: none; }
-        .card-title { font-size: 16px; font-weight: bold; color: var(--color-text-main); margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .card-title { font-size: 14px; font-weight: bold; color: var(--color-text-main); margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .card-detail-block {
+            display: flex; flex-direction: column; gap: 2px;
+            margin-top: 3px; max-width: 100%; min-width: 0;
+        }
+        .card-detail-line {
+            font-size: 10px; color: var(--color-text-sub);
+            line-height: 1.2;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        .card-detail-news-text { color: #555; }
+        .card-status--compact {
+            font-size: 9px; font-weight: bold; letter-spacing: 0.3px;
+            padding: 2px 6px; border-radius: 4px;
+            display: inline-block; max-width: 100%;
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle;
+        }
         .card-meta-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
         .card-status { font-size: 11px; padding: 4px 10px; border-radius: 6px; font-weight: bold; letter-spacing: 0.5px; pointer-events: none; }
         .flash-news-tag {
@@ -583,10 +686,10 @@
         }
         .flash-news-tag * { pointer-events: none; }
         .card-arrow {
-            position: absolute; bottom: 15px; right: 15px;
-            width: 32px; height: 32px; border-radius: 50%; background: #f5f5f5;
+            position: absolute; bottom: 11px; right: 11px;
+            width: 26px; height: 26px; border-radius: 50%; background: #f5f5f5;
             display: flex; align-items: center; justify-content: center;
-            color: #666; font-size: 14px; transition: all 0.2s;
+            color: #666; font-size: 12px; transition: all 0.2s;
             z-index: 10; cursor: pointer; pointer-events: auto;
             box-shadow: 0 1px 3px rgba(0,0,0,0.12);
         }
@@ -889,14 +992,120 @@
             background: #2196F3; color: white;
             font-size: 8px; font-weight: bold;
             padding: 1px 6px; border-radius: 3px;
-            white-space: nowrap; z-index: 10;
+            white-space: nowrap; z-index: 12;
             border: 1.5px solid white;
             animation: live-pulse 1.5s ease-in-out infinite;
-            max-width: 58px;
+            max-width: 62px;
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .live-standalone-marker .marker-inner-livepost {
+        /* LIVE マーカー: 頭＋下向き三角形で「ピン」のように立体感を出す（APNG も頭部に載せられる） */
+        .custom-marker.custom-marker--live-pin {
+            width: 64px;
+            height: 78px;
+            justify-content: flex-end;
+            align-items: center;
+            display: flex;
+            flex-direction: column;
+        }
+        @media (max-width: 767px) {
+            .custom-marker.custom-marker--live-pin {
+                width: 50px;
+                height: 62px;
+            }
+        }
+        .marker-pin {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            transform-origin: center bottom;
+        }
+        .marker-pin > .marker-inner,
+        .marker-pin > .marker-inner-livepost {
+            width: 54px;
+            height: 54px;
+            flex-shrink: 0;
+            box-sizing: border-box;
+            border-radius: 50%;
+        }
+        .marker-pin > .marker-inner-livepost {
+            background: #fff;
+            box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+        @media (max-width: 767px) {
+            .marker-pin > .marker-inner,
+            .marker-pin > .marker-inner-livepost {
+                width: 42px;
+                height: 42px;
+            }
+        }
+        .marker-pin--floating {
+            animation: marker-pin-float 3s ease-in-out infinite;
+        }
+        @keyframes marker-pin-float {
+            0%, 100% { transform: translateY(0); }
+            50%      { transform: translateY(-5px); }
+        }
+        .marker-pin-stem {
+            width: 0;
+            height: 0;
+            margin-top: -5px;
+            margin-bottom: 0;
+            border-left: 10px solid transparent;
+            border-right: 10px solid transparent;
+            border-top: 15px solid var(--stem-color, #2196F3);
+            filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.32));
+            pointer-events: none;
+        }
+        @media (max-width: 767px) {
+            .marker-pin-stem {
+                margin-top: -4px;
+                border-left-width: 8px;
+                border-right-width: 8px;
+                border-top-width: 12px;
+            }
+        }
+        /* ラベルは丸い頭と地面アンカーのあいだ（茎の上部付近） */
+        .custom-marker--live-pin .marker-live-badge {
+            bottom: 18px;
+            max-width: none;
+            font-size: 8px;
+            padding: 2px 7px;
+        }
+        @media (max-width: 767px) {
+            .custom-marker--live-pin .marker-live-badge {
+                bottom: 14px;
+                font-size: 7px;
+                padding: 1px 5px;
+            }
+        }
+        .custom-marker--live-pin.active .marker-inner,
+        .custom-marker--live-pin.active .marker-inner-livepost {
+            transform: none;
+            border-color: var(--color-accent);
+            border-width: 4px;
+            box-shadow: 0 0 0 4px rgba(255, 92, 56, 0.25), 0 6px 20px rgba(0, 0, 0, 0.4);
+        }
+        .custom-marker--live-pin.active .marker-pin--floating {
+            animation: none;
+        }
+        .custom-marker--live-pin.active .marker-pin {
+            animation: marker-pin-pop 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+        @keyframes marker-pin-pop {
+            0%   { transform: scale(1); }
+            60%  { transform: scale(1.5); }
+            100% { transform: scale(1.38); }
+        }
+        .custom-marker--live-pin.active .marker-pin-stem {
+            filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.35));
+        }
+        .live-standalone-marker:not(.custom-marker--live-pin) .marker-inner-livepost {
             width: 100%; height: 100%; border-radius: 50%; border-width: 3px;
             background: #fff; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
             display: flex; align-items: center; justify-content: center;
@@ -905,32 +1114,45 @@
         .live-standalone-marker {
             width: 52px; height: 52px;
         }
+        .live-standalone-marker.custom-marker--live-pin {
+            width: 58px;
+            height: 72px;
+        }
         @media (max-width: 767px) {
-            .live-standalone-marker { width: 40px; height: 40px; }
+            .live-standalone-marker.custom-marker--live-pin {
+                width: 46px;
+                height: 60px;
+            }
+            .live-standalone-marker:not(.custom-marker--live-pin) {
+                width: 40px;
+                height: 40px;
+            }
         }
         .card-live-post {
-            margin-top: 5px; padding: 6px 8px;
-            background: #E3F2FD; border-radius: 8px;
+            margin-top: 4px; padding: 5px 7px;
+            background: #E3F2FD; border-radius: 7px;
             border-left: 3px solid #2196F3;
             pointer-events: none;
         }
         .card-live-post * { pointer-events: none; }
-        /* カード上部は常に店舗メイン写真のみ。LIVEは文言のみ（高さ・見切れ防止） */
-        .card-live-post--textonly { padding: 5px 8px; margin-top: 4px; }
-        .card-live-post--textonly .card-live-message {
-            white-space: normal;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-            line-height: 1.35;
-            max-height: 2.8em;
+        /* 画像上に LIVE バッジがあるため、本文エリアはカテゴリ・時刻・1行プレビューのみ */
+        .card-live-post--compact { margin-top: 4px; padding: 4px 7px; }
+        .card-live-compact-meta {
+            display: flex; align-items: baseline; gap: 6px; flex-wrap: nowrap;
+            font-size: 9px; font-weight: bold; color: #1565C0;
+            min-width: 0;
+        }
+        .card-live-cat { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .card-live-post--compact .card-live-message {
+            font-size: 10px; color: #333;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+            line-height: 1.25; margin-top: 2px;
         }
         .card-live-message {
             font-size: 11px; color: #333;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .card-live-time { font-size: 10px; color: #999; }
+        .card-live-time { font-size: 9px; color: #888; font-weight: normal; flex-shrink: 0; }
         .modal-live-post {
             margin: 0 0 16px; padding: 12px 14px;
             background: #E3F2FD; border-radius: 12px;
@@ -2367,17 +2589,30 @@ const UIModule = {
             if (spot.livePost) {
                 inner.style.borderColor = LIVE_RING_COLOR_STORE;
                 inner.style.boxShadow = '0 4px 10px rgba(33,150,243,0.4)';
+                inner.classList.remove('floating');
+                const pin = document.createElement('div');
+                pin.className = 'marker-pin marker-pin--floating';
+                const stem = document.createElement('div');
+                stem.className = 'marker-pin-stem';
+                stem.style.setProperty('--stem-color', LIVE_RING_COLOR_STORE);
+                pin.appendChild(inner);
+                pin.appendChild(stem);
                 const liveBadge = document.createElement('div');
                 liveBadge.className = 'marker-live-badge';
-                liveBadge.textContent = spot.livePost.category ? spot.livePost.category.slice(0, 8) : 'LIVE';
+                liveBadge.textContent = 'LIVE';
+                el.classList.add('custom-marker--live-pin');
                 el.appendChild(liveBadge);
-            } else if (val(spot, 'news')) {
-                const nb = document.createElement('div');
-                nb.className = 'marker-news-badge';
-                nb.innerHTML = '<i class="fas fa-bullhorn"></i>';
-                el.appendChild(nb);
+                el.appendChild(pin);
+            } else {
+                inner.classList.add('floating');
+                if (val(spot, 'news')) {
+                    const nb = document.createElement('div');
+                    nb.className = 'marker-news-badge';
+                    nb.innerHTML = '<i class="fas fa-bullhorn"></i>';
+                    el.appendChild(nb);
+                }
+                el.appendChild(inner);
             }
-            el.appendChild(inner);
             el.addEventListener('click', e => { e.stopPropagation(); App.selectSpot(spot); });
 
             const marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
@@ -2392,9 +2627,9 @@ const UIModule = {
             const clr = LIVE_MARKER_COLOR_BY_ROLE[lp.role] || '#666';
 
             const el = document.createElement('div');
-            el.className = 'live-standalone-marker custom-marker';
+            el.className = 'live-standalone-marker custom-marker custom-marker--live-pin';
             const wrap = document.createElement('div');
-            wrap.className = 'marker-inner-livepost floating';
+            wrap.className = 'marker-inner-livepost';
             wrap.style.borderColor = clr;
             wrap.style.borderStyle = 'solid';
 
@@ -2410,13 +2645,24 @@ const UIModule = {
             } else {
                 wrap.innerHTML = '<span style="font-size:22px;">📍</span>';
             }
-            el.appendChild(wrap);
+
+            const pin = document.createElement('div');
+            pin.className = 'marker-pin marker-pin--floating';
+
+            const stem = document.createElement('div');
+            stem.className = 'marker-pin-stem';
+            stem.style.setProperty('--stem-color', clr);
+
+            pin.appendChild(wrap);
+            pin.appendChild(stem);
 
             const badge = document.createElement('div');
             badge.className = 'marker-live-badge';
             badge.style.background = clr;
-            badge.textContent = liveRoleJa(lp.role);
+            badge.textContent = 'LIVE';
+
             el.appendChild(badge);
+            el.appendChild(pin);
 
             const msgShort = lp.message ? escapeHtml(lp.message.substring(0, 80)) : '';
             const imgHtml = lp.imageUrl
@@ -2510,18 +2756,47 @@ const UIModule = {
             card.onclick = () => App.selectSpot(spot);
 
             const si = getStatusInfo(spot.status);
+            const newsVal = val(spot, 'news');
+            const hoursText = val(spot, 'hours');
+
             const thumbHtml = spot.imageUrl
                 ? `<img src="${spot.imageUrl}" class="card-thumb"
                     onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">`
                 : '';
             const placeholder = `<div class="card-emoji-placeholder"
                 style="${spot.imageUrl ? 'display:none' : ''}">${spot.emoji}</div>`;
-            const statusHtml = spot.status
-                ? `<span class="card-status" style="background:${si.bg}; color:${si.text};">${spot.status}</span>`
+
+            const indParts = [];
+            if (spot.status) {
+                indParts.push(`<span class="card-ind card-ind--status" style="background:${si.bg};box-shadow:0 0 0 2px rgba(255,255,255,0.95)" title="${escapeHtml(spot.status)}" role="img" aria-label="${escapeHtml(spot.status)}"></span>`);
+            }
+            if (newsVal) {
+                indParts.push(`<span class="card-ind card-ind--news" title="${escapeHtml(newsVal)}" aria-label="お知らせ"><i class="fas fa-bullhorn" aria-hidden="true"></i></span>`);
+            }
+            if (hoursText) {
+                indParts.push(`<span class="card-ind card-ind--hours" title="${escapeHtml(hoursText)}" aria-label="営業時間"><i class="fas fa-clock" aria-hidden="true"></i></span>`);
+            }
+            if (spot.livePost) {
+                indParts.push(`<span class="card-ind card-ind--live-tag" title="LIVE投稿"><span class="live-badge live-badge--card-top">LIVE</span></span>`);
+            }
+            const indicatorsHtml = indParts.length
+                ? `<div class="card-image-indicators">${indParts.join('')}</div>`
                 : '';
-            const newsHtml = val(spot, 'news')
-                ? `<div class="flash-news-tag"><i class="fas fa-bullhorn"></i> ${val(spot, 'news')}</div>`
+
+            const detailLines = [];
+            if (spot.status) {
+                detailLines.push(`<div class="card-detail-line"><span class="card-status--compact" style="background:${si.bg};color:${si.text}">${spot.status}</span></div>`);
+            }
+            if (newsVal) {
+                detailLines.push(`<div class="card-detail-line card-detail-news-text"><i class="fas fa-bullhorn"></i> ${newsVal}</div>`);
+            }
+            if (hoursText) {
+                detailLines.push(`<div class="card-detail-line card-detail-hours"><i class="fas fa-clock"></i> ${hoursText}</div>`);
+            }
+            const detailHtml = detailLines.length
+                ? `<div class="card-detail-block">${detailLines.join('')}</div>`
                 : '';
+
             const spotTags = (State.language === 'ja' ? spot.tags : spot.tags_en) || [];
             const tagsHtml = spotTags.length
                 ? `<div class="tag-chips">${spotTags.slice(0, 3).map(tag =>
@@ -2529,24 +2804,18 @@ const UIModule = {
                         onclick="event.stopPropagation(); App.toggleTagFilter('${tag.replace(/'/g, '\\\'')}')">#${tag}</span>`
                   ).join('')}</div>`
                 : '';
-            const hoursText = val(spot, 'hours');
-            const hoursHtml = hoursText
-                ? `<div class="card-hours-line" style="font-size:11px; color:var(--color-text-sub); margin-top:4px;"><i class="fas fa-clock" style="color:var(--color-primary); margin-right:4px;"></i>${hoursText}</div>`
-                : '';
 
-            // LIVEはトップ写真（imageUrl）を変えず、テキスト1行＋バッジのみ（LINE画像は詳細モーダルで）
             let livePostHtml = '';
             if (spot.livePost) {
                 const lp = spot.livePost;
                 const timeStr = timeAgo(lp.timestamp);
                 const safeMsg = lp.message
-                    ? lp.message.substring(0, 48).replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                    ? lp.message.substring(0, 52).replace(/</g, '&lt;').replace(/>/g, '&gt;')
                     : (lp.imageUrl ? '📸 画像あり（詳細で表示）' : '');
                 const cat = lp.category ? escapeHtml(lp.category) : '';
-                livePostHtml = `<div class="card-live-post card-live-post--textonly">
-                    <div style="display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-bottom:2px;">
-                        <span class="live-badge">● LIVE</span>
-                        ${cat ? `<span style="font-size:10px;font-weight:bold;color:#1565C0">${cat}</span>` : ''}
+                livePostHtml = `<div class="card-live-post card-live-post--compact">
+                    <div class="card-live-compact-meta">
+                        ${cat ? `<span class="card-live-cat">${cat}</span>` : ''}
                         <span class="card-live-time">${timeStr}</span>
                     </div>
                     ${safeMsg ? `<div class="card-live-message">${safeMsg}</div>` : ''}
@@ -2554,11 +2823,11 @@ const UIModule = {
             }
 
             card.innerHTML = `
-                <div class="card-image-area">${thumbHtml}${placeholder}</div>
+                <div class="card-image-area">${thumbHtml}${placeholder}${indicatorsHtml}</div>
                 <div class="card-info">
                     <div class="card-title">${val(spot, 'name')}</div>
-                    <div class="card-meta-row">${statusHtml}${newsHtml}</div>
-                    ${hoursHtml}${tagsHtml}
+                    ${detailHtml}
+                    ${tagsHtml}
                     ${livePostHtml}
                     <div class="card-arrow" role="button" aria-label="詳細">
                         <i class="fas fa-arrow-right"></i>

@@ -168,15 +168,22 @@ function createMikoshiMarkerElement() {
   shadow.className = 'mikoshi-marker-shadow';
   const body = document.createElement('div');
   body.className = 'mikoshi-marker-body';
+  const head = document.createElement('div');
+  head.className = 'mikoshi-marker-head';
+  const stem = document.createElement('div');
+  stem.className = 'mikoshi-marker-stem';
+  stem.setAttribute('aria-hidden', 'true');
   const img = document.createElement('img');
   img.className = 'mikoshi-marker-img';
   img.src = ICON_URL;
   img.alt = '';
   img.decoding = 'async';
   img.draggable = false;
+  head.appendChild(img);
+  body.appendChild(head);
+  body.appendChild(stem);
   root.appendChild(shadow);
   root.appendChild(body);
-  body.appendChild(img);
   return root;
 }
 
@@ -190,8 +197,9 @@ function ensureMikoshiMarker(initialState) {
   mikoshiMarker = new Mb.Marker({
     element: el,
     anchor: 'bottom',
+    // 進行方向ベアリングはこれまで通り「地図／北基準」。ピッチだけ画面向きにして倒れて見えないようにする。
     rotationAlignment: 'map',
-    pitchAlignment: 'map'
+    pitchAlignment: 'viewport'
   })
     .setLngLat([initialState.lng, initialState.lat])
     .addTo(map);

@@ -112,9 +112,11 @@ function getRegistrationPassword_() {
 }
 
 // メインスポット列（browser CONFIG.COLS と一致する 0-based index）
-const MASTER_COL_STORE_ID = 9;
+// A=_reserved, B=name(1), C=lat(2), D=lng(3) … J=store_id(9)
+const MASTER_COL_NAME = 1;
 const MASTER_COL_LAT = 2;
 const MASTER_COL_LNG = 3;
+const MASTER_COL_STORE_ID = 9;
 
 const POSTS_SHEET_NAME = 'posts';
 const VENUE_SPOTS_SHEET_NAME = 'venue_spots';
@@ -141,12 +143,22 @@ const STEP_AWAITING_CATEGORY = 'awaiting_category';
 /** 未登録向け: 「店」のあと store_id だけ送らせる */
 const STEP_AWAITING_REGISTER_STORE_ID = 'awaiting_register_store_id';
 const STEP_AWAITING_STORE_LOCATION   = 'awaiting_store_location';
+/** 「登録 〇〇」のあと、スクリプトプロパティの登録パスワードを別メッセージで受け取る */
+const STEP_AWAITING_REGISTRATION_PASSWORD = 'awaiting_registration_password';
 
 const TTL_MS = {
-  [ROLE_STORE]: 3 * 60 * 60 * 1000,
-  [ROLE_OPERATOR]: 45 * 60 * 1000,
-  [ROLE_CONTRIBUTOR]: 22 * 60 * 1000
+  [ROLE_STORE]: 6 * 60 * 60 * 1000,
+  [ROLE_OPERATOR]: 3 * 60 * 60 * 1000,
+  [ROLE_CONTRIBUTOR]: 1 * 60 * 60 * 1000
 };
+
+/** 投稿完了メッセージ用（整数時間なら「約N時間」、それ以外は分） */
+function formatPostTtlHint_(ms) {
+  const h = ms / (60 * 60 * 1000);
+  if (h >= 1 && h === Math.floor(h)) return '約' + h + '時間';
+  const mins = Math.round(ms / 60000);
+  return '約' + mins + '分';
+}
 
 const SOURCE_FIXED = 'fixed';
 const SOURCE_SELECTED = 'selected';
@@ -197,6 +209,61 @@ function webhookExecErr_(message) {
   } catch (e2) {}
 }
 
+/** 1 メッセージイベントごとにリセット。同一実行内のシート再読み取りを減らす */
+var __webhookReqStartMs_ = 0;
+var __webhookVenueSpotsMemoLoaded_ = false;
+var __webhookVenueSpotsMemo_ = [];
+/** undefined=未読込 null=シートなし それ以外=getValues の配列 */
+var __webhookUserMapRows_ = undefined;
+var __webhookBotSessionRows_ = undefined;
+
+function resetWebhookRequestCache_() {
+  __webhookVenueSpotsMemoLoaded_ = false;
+  __webhookVenueSpotsMemo_ = [];
+  __webhookUserMapRows_ = undefined;
+  __webhookBotSessionRows_ = undefined;
+}
+
+/** doPost 内・イベント処理の最初で呼ぶ（計測開始とメモリキャッシュ初期化） */
+function beginWebhookEventTiming_() {
+  __webhookReqStartMs_ = Date.now();
+  resetWebhookRequestCache_();
+}
+
+/** LINE Messaging API 呼び出し直前の経過 ms。GAS の実行ログで `[timing] ms_until_line_api=` を検索し、デプロイ前後で同一操作を比較する（ch=reply / reply_multi / push）。 */
+function logTimingUntilLineApi_(channel) {
+  if (!__webhookReqStartMs_) return;
+  webhookExecLog_('[timing] ms_until_line_api=' + (Date.now() - __webhookReqStartMs_) + ' ch=' + channel);
+}
+
+function invalidateUserMapCache_() {
+  __webhookUserMapRows_ = undefined;
+}
+
+function ensureUserMapRows_() {
+  if (__webhookUserMapRows_ !== undefined) return;
+  const sheet = getUserMapSheet(false);
+  if (!sheet) {
+    __webhookUserMapRows_ = null;
+    return;
+  }
+  __webhookUserMapRows_ = sheet.getDataRange().getValues();
+}
+
+function invalidateBotSessionCache_() {
+  __webhookBotSessionRows_ = undefined;
+}
+
+function ensureBotSessionRows_() {
+  if (__webhookBotSessionRows_ !== undefined) return;
+  const sheet = getBotSessionSheet(false);
+  if (!sheet) {
+    __webhookBotSessionRows_ = null;
+    return;
+  }
+  __webhookBotSessionRows_ = sheet.getDataRange().getValues();
+}
+
 function doPost(e) {
   try {
     const body = JSON.parse(e.postData.contents);
@@ -216,6 +283,7 @@ function doPost(e) {
         webhookExecErr_('[doPost] LockService.waitLock ' + String(lockErr && lockErr.message ? lockErr.message : lockErr));
       }
       try {
+        beginWebhookEventTiming_();
         const userId = event.source?.userId;
         const replyToken = event.replyToken;
         const msg = event.message;
@@ -336,16 +404,28 @@ function handleTextIncoming(userId, replyToken, text) {
       '店舗の store_id（スプレッドシートの店舗マスタと同じ表記）を、次の1通だけ送ってください。\n例：風まち（または store_001）');
     return;
   }
-  if (/^登録/.test(text)) {
-    handleRegisterCommand(userId, replyToken, text);
-    return;
-  }
+  // 「登録〇〇」より先に完全一致だけ処理する（/^登録/ に「登録確認」「登録解除」が吸われると登録フローに入ってしまう）
   if (/^登録確認$/.test(text)) {
     handleCheckCommand(userId, replyToken);
     return;
   }
   if (/^登録解除$/.test(text)) {
     handleUnregisterCommand(userId, replyToken);
+    return;
+  }
+
+  const sessRegFlow = getSession(userId);
+  if (sessRegFlow.step === STEP_AWAITING_REGISTER_STORE_ID) {
+    handleRegisterCommand(userId, replyToken, '登録 ' + text.trim());
+    return;
+  }
+  if (sessRegFlow.step === STEP_AWAITING_REGISTRATION_PASSWORD) {
+    handleRegistrationPasswordReply(userId, replyToken, text);
+    return;
+  }
+
+  if (/^登録/.test(text)) {
+    handleRegisterCommand(userId, replyToken, text);
     return;
   }
 
@@ -366,31 +446,25 @@ function handleTextIncoming(userId, replyToken, text) {
     }
   }
 
-  const sessRegister = getSession(userId);
-  if (sessRegister.step === STEP_AWAITING_REGISTER_STORE_ID) {
-    handleRegisterCommand(userId, replyToken, '登録 ' + text.trim());
-    return;
-  }
-
   const user = getUserRecord(userId);
   if (!user || user.isActive === false) {
     replyText(replyToken, buildUnknownUserMessage(userId));
     return;
   }
 
+  let sess = getSession(userId);
   let catPick = parseCategoryFromText(text);
-  const sess0 = getSession(userId);
-  if (!catPick && sess0.step === STEP_AWAITING_CATEGORY && CATEGORIES.indexOf(text.trim()) >= 0) {
+  if (!catPick && sess.step === STEP_AWAITING_CATEGORY && CATEGORIES.indexOf(text.trim()) >= 0) {
     catPick = text.trim();
   }
   if (catPick) {
-    if (sess0.step === STEP_AWAITING_CATEGORY) {
+    if (sess.step === STEP_AWAITING_CATEGORY) {
       finalizePostWithCategory(userId, replyToken, user, catPick);
       return;
     }
   }
 
-  if (user.role === ROLE_OPERATOR && getSession(userId).step === STEP_AWAITING_SPOT) {
+  if (user.role === ROLE_OPERATOR && sess.step === STEP_AWAITING_SPOT) {
     const n = parseInt(text, 10);
     if (/^\d+$/.test(text) && !isNaN(n)) {
       handleOperatorSpotNumber(userId, replyToken, n);
@@ -402,17 +476,19 @@ function handleTextIncoming(userId, replyToken, text) {
 
   flushExpiredPending();
 
-  if (user.role === ROLE_STORE && getSession(userId).step === STEP_AWAITING_CATEGORY) {
+  // flush は他ユーザーだけでなく期限切れ pending の自分のセッションも更新しうる
+  sess = getSession(userId);
+
+  if (user.role === ROLE_STORE && sess.step === STEP_AWAITING_CATEGORY) {
     replyText(replyToken, 'カテゴリをボタンから選んでください👇');
     return;
   }
 
   if (user.role === ROLE_STORE) {
-    const sStore = getSession(userId);
     if (
-      sStore.step === STEP_AWAITING_CONTENT &&
-      sStore.payload.lat != null &&
-      sStore.payload.lng != null
+      sess.step === STEP_AWAITING_CONTENT &&
+      sess.payload.lat != null &&
+      sess.payload.lng != null
     ) {
       handleContributorContentText(userId, replyToken, user, text);
       return;
@@ -540,7 +616,7 @@ function handleLocationIncoming(userId, replyToken, lat, lng) {
         : '';
     replyText(
       replyToken,
-      '📍位置を受け取りました。\n続けて写真と短文（50文字以内）を送ってください📸\n（どちら先でもOK）' + tail
+      '📍位置を受け取りました。\n続けて📸写真・短文（50字まで）を、どちらか先でも送ってください。' + tail
     );
   } catch (err) {
     var detail = String(err.message || err);
@@ -649,11 +725,9 @@ function handleContributorContentText(userId, replyToken, user, text) {
   if (sess.payload.lat == null || sess.payload.lng == null) {
     replyText(
       replyToken,
-      '協力者の投稿は📍位置情報が先です。\n' +
-        '1) 「＋」→「位置情報」で送る\n' +
-        '2) 「📍位置を受け取りました」と返ってくるのを待つ\n' +
-        '3) そのあとに短文や写真を送る\n' +
-        '※位置と同時・直後のテキストは先に処理されないことがあります。返信が来てから送ってください。'
+      '協力者の投稿は📍位置が先です。\n' +
+        '「＋」→「位置情報」で送る → 「📍位置を受け取りました」のあとに短文・📸\n' +
+        '※位置と同時・直後のテキストは届かないことがあります。返信のあとに送ってください。'
     );
     return;
   }
@@ -771,7 +845,7 @@ function finalizePostWithCategory(userId, replyToken, user, category) {
   let locHint = '';
   if (spotName) locHint = `\n場所:${spotName}`;
   replyText(replyToken,
-    `✅ マップに反映しました！\nカテゴリ:${category}${locHint}\n（約${Math.round(TTL_MS[user.role] / 60000)}分で自動的に終了します）`);
+    `✅ マップに反映しました！\nカテゴリ:${category}${locHint}\n（${formatPostTtlHint_(TTL_MS[user.role])}で自動的に終了します）`);
 }
 
 // ==================================================================
@@ -849,9 +923,9 @@ function parseUserRow(row) {
 }
 
 function getUserRecord(userId) {
-  const sheet = getUserMapSheet(false);
-  if (!sheet) return null;
-  const data = sheet.getDataRange().getValues();
+  ensureUserMapRows_();
+  if (__webhookUserMapRows_ == null) return null;
+  const data = __webhookUserMapRows_;
   for (let i = 1; i < data.length; i++) {
     if (sheetRowUserIdMatches_(data[i][0], userId)) return parseUserRow(data[i]);
   }
@@ -873,10 +947,12 @@ function saveUserRecord(userId, role, fixedStoreId) {
         '',
         now
       ]]);
+      invalidateUserMapCache_();
       return;
     }
   }
   sheet.appendRow([uid, role, fixedStoreId || '', true, '', now]);
+  invalidateUserMapCache_();
 }
 
 function deleteUserFromMap(userId) {
@@ -886,6 +962,7 @@ function deleteUserFromMap(userId) {
   for (let i = data.length - 1; i >= 1; i--) {
     if (sheetRowUserIdMatches_(data[i][0], userId)) {
       sheet.deleteRow(i + 1);
+      invalidateUserMapCache_();
       return;
     }
   }
@@ -894,9 +971,9 @@ function deleteUserFromMap(userId) {
 function lookupUserIdByFixedStoreId(storeId) {
   const want = normalizeStoreKeyForWebhook_(storeId);
   if (!want) return null;
-  const sheet = getUserMapSheet(false);
-  if (!sheet) return null;
-  const data = sheet.getDataRange().getValues();
+  ensureUserMapRows_();
+  if (__webhookUserMapRows_ == null) return null;
+  const data = __webhookUserMapRows_;
   for (let i = 1; i < data.length; i++) {
     const u = parseUserRow(data[i]);
     if (u && u.role === ROLE_STORE && normalizeStoreKeyForWebhook_(u.fixedStoreId) === want) return u.userId;
@@ -905,9 +982,9 @@ function lookupUserIdByFixedStoreId(storeId) {
 }
 
 function getAllUserMapRows() {
-  const sheet = getUserMapSheet(false);
-  if (!sheet) return [];
-  const data = sheet.getDataRange().getValues();
+  ensureUserMapRows_();
+  if (__webhookUserMapRows_ == null) return [];
+  const data = __webhookUserMapRows_;
   const rows = [];
   for (let i = 1; i < data.length; i++) {
     const u = parseUserRow(data[i]);
@@ -942,11 +1019,11 @@ function getUserMapSheet(createIfMissing) {
 // ==================================================================
 
 function getSession(userId) {
-  const sheet = getBotSessionSheet(false);
-  if (!sheet) {
+  ensureBotSessionRows_();
+  if (__webhookBotSessionRows_ == null) {
     return { step: STEP_IDLE, payload: {} };
   }
-  const data = sheet.getDataRange().getValues();
+  const data = __webhookBotSessionRows_;
   for (let i = 1; i < data.length; i++) {
     if (!sheetRowUserIdMatches_(data[i][0], userId)) continue;
     let payload = {};
@@ -970,10 +1047,12 @@ function setSession(userId, step, payload) {
   for (let i = 1; i < data.length; i++) {
     if (sheetRowUserIdMatches_(data[i][0], uid)) {
       sheet.getRange(i + 1, 2, 1, 3).setValues([[step, json, now]]);
+      invalidateBotSessionCache_();
       return;
     }
   }
   sheet.appendRow([uid, step, json, now]);
+  invalidateBotSessionCache_();
 }
 
 function deleteSession(userId) {
@@ -983,6 +1062,7 @@ function deleteSession(userId) {
   for (let i = data.length - 1; i >= 1; i--) {
     if (sheetRowUserIdMatches_(data[i][0], userId)) {
       sheet.deleteRow(i + 1);
+      invalidateBotSessionCache_();
       return;
     }
   }
@@ -1004,7 +1084,7 @@ function getBotSessionSheet(createIfMissing) {
 // venue_spots
 // ==================================================================
 
-function getVenueSpots() {
+function getVenueSpotsUncached_() {
   const ss = openWebhookSpreadsheet_();
   const sheet = ss.getSheetByName(VENUE_SPOTS_SHEET_NAME);
   if (!sheet) return [];
@@ -1024,6 +1104,14 @@ function getVenueSpots() {
     });
   }
   return list;
+}
+
+function getVenueSpots() {
+  if (!__webhookVenueSpotsMemoLoaded_) {
+    __webhookVenueSpotsMemoLoaded_ = true;
+    __webhookVenueSpotsMemo_ = getVenueSpotsUncached_();
+  }
+  return __webhookVenueSpotsMemo_;
 }
 
 function buildSpotListMessage() {
@@ -1083,8 +1171,8 @@ function saveStoreCoordsToMaster(storeId, lat, lng) {
   newRow[MASTER_COL_STORE_ID] = storeId;
   newRow[MASTER_COL_LAT] = lat;
   newRow[MASTER_COL_LNG] = lng;
-  // 店舗名は storeId をそのまま使う（後でスプレッドシートで編集可）
-  if (numCols > 0) newRow[0] = storeId;
+  // 表示名（name 列）: 新規行では store_id と同じ表記。_reserved(列A)には書かない。
+  if (numCols > MASTER_COL_NAME) newRow[MASTER_COL_NAME] = storeId;
   sheet.appendRow(newRow);
   webhookExecLog_('[saveStoreCoordsToMaster] appended new row for ' + storeId);
 }
@@ -1224,10 +1312,11 @@ function flushExpiredPending(excludeUserId) {
       setSession(userId, STEP_AWAITING_SPOT, {
         text: message, imageUrl, lat: null, lng: null, spotId: '', spotName: ''
       });
+      const spotListMsg = buildSpotListMessage();
       pushText(userId,
-        buildSpotListMessage().indexOf('⚠️') === 0
-          ? buildSpotListMessage()
-          : '📝内容を確定しました。\n' + buildSpotListMessage()
+        spotListMsg.indexOf('⚠️') === 0
+          ? spotListMsg
+          : '📝内容を確定しました。\n' + spotListMsg
       );
     } else if (user.role === ROLE_CONTRIBUTOR) {
       const sess = getSession(userId);
@@ -1261,6 +1350,7 @@ function replyText(replyToken, text) {
     webhookExecErr_('[replyText] missing replyToken');
     return;
   }
+  logTimingUntilLineApi_('reply');
   const payload = { replyToken, messages: [{ type: 'text', text }] };
   const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
@@ -1281,6 +1371,7 @@ function pushText(userId, text) {
 }
 
 function pushMessages(userId, messages) {
+  logTimingUntilLineApi_('push');
   UrlFetchApp.fetch('https://api.line.me/v2/bot/message/push', {
     method: 'POST',
     contentType: 'application/json',
@@ -1317,6 +1408,7 @@ function replyMessages(replyToken, messages) {
     webhookExecErr_('[replyMessages] missing replyToken');
     return;
   }
+  logTimingUntilLineApi_('reply_multi');
   const res = UrlFetchApp.fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
     contentType: 'application/json',
@@ -1361,29 +1453,51 @@ function handleRegisterCommand(userId, replyToken, text) {
 
   if (!sub) {
     replyText(replyToken,
-      '⚠️ 使い方\n店舗: 「店 風まち」または「登録 風まち」（全角スペース可）／「店」→次にIDだけ／従来の英数字IDも可\n運営: 登録 運営（パスワード）\n協力: 登録 協力（パスワード）');
+      '⚠️ 使い方\n' +
+        '店舗: 「店 風まち」または「登録 風まち」（パスワード設定時は続けてパスワードのみを別送信）\n' +
+        '運営: 「登録 運営」→ パスワード（設定時は別送信）\n' +
+        '協力: 「登録 協力」→ パスワード（設定時は別送信）\n' +
+        '※管理者アカウントはパスワード不要／「店」→ store_id だけの流れも可');
     return;
   }
 
+  const regPwGlobal = getRegistrationPassword_();
+
   if (sub === '運営' || sub === 'operator') {
-    if (!canRegisterSpecialRoles(userId, specialPw)) {
-      replyText(replyToken, '🔒 運営登録には管理者または登録パスワードが必要です。');
+    if (canRegisterSpecialRoles(userId, specialPw)) {
+      saveUserRecord(userId, ROLE_OPERATOR, '');
+      deleteSession(userId);
+      replyText(replyToken, '✅ 運営として登録しました。写真または短文→スポット番号→カテゴリの順で投稿できます。');
       return;
     }
-    saveUserRecord(userId, ROLE_OPERATOR, '');
-    deleteSession(userId);
-    replyText(replyToken, '✅ 運営として登録しました。写真または短文→スポット番号→カテゴリの順で投稿できます。');
+    if (regPwGlobal && !specialPw) {
+      setSession(userId, STEP_AWAITING_REGISTRATION_PASSWORD, { regKind: 'operator' });
+      replyText(
+        replyToken,
+        '🔒 続けて登録パスワードをそのまま1通だけ送ってください。\n（やめるときは「登録解除」）'
+      );
+      return;
+    }
+    replyText(replyToken, '🔒 運営登録には管理者または登録パスワードが必要です。');
     return;
   }
 
   if (sub === '協力' || sub === '協力者' || sub === 'contributor') {
-    if (!canRegisterSpecialRoles(userId, specialPw)) {
-      replyText(replyToken, '🔒 協力者登録には管理者または登録パスワードが必要です。');
+    if (canRegisterSpecialRoles(userId, specialPw)) {
+      saveUserRecord(userId, ROLE_CONTRIBUTOR, '');
+      setSession(userId, STEP_IDLE, { text: '', imageUrl: '', lat: null, lng: null, spotId: '', spotName: '' });
+      replyText(replyToken, '✅ 協力者として登録しました。\n投稿は 📍位置情報 → 写真・短文 → カテゴリ の流れです。');
       return;
     }
-    saveUserRecord(userId, ROLE_CONTRIBUTOR, '');
-    setSession(userId, STEP_IDLE, { text: '', imageUrl: '', lat: null, lng: null, spotId: '', spotName: '' });
-    replyText(replyToken, '✅ 協力者として登録しました。\n投稿は 📍位置情報 → 写真・短文 → カテゴリ の流れです。');
+    if (regPwGlobal && !specialPw) {
+      setSession(userId, STEP_AWAITING_REGISTRATION_PASSWORD, { regKind: 'contributor' });
+      replyText(
+        replyToken,
+        '🔒 続けて登録パスワードをそのまま1通だけ送ってください。\n（やめるときは「登録解除」）'
+      );
+      return;
+    }
+    replyText(replyToken, '🔒 協力者登録には管理者または登録パスワードが必要です。');
     return;
   }
 
@@ -1398,11 +1512,6 @@ function handleRegisterCommand(userId, replyToken, text) {
   }
   const storeId = storeIdRaw;
   const storePw = parts.length > 2 ? parts.slice(2).join(' ') : '';
-  const regPw = getRegistrationPassword_();
-  if (regPw && storePw !== regPw) {
-    replyText(replyToken, '🔒 登録パスワードが違います。\n例：登録 風まち（パスワード）');
-    return;
-  }
 
   const existing = lookupUserIdByFixedStoreId(storeId);
   if (existing && existing !== userId) {
@@ -1410,15 +1519,88 @@ function handleRegisterCommand(userId, replyToken, text) {
     return;
   }
 
+  if (regPwGlobal) {
+    if (!storePw) {
+      setSession(userId, STEP_AWAITING_REGISTRATION_PASSWORD, { regKind: 'store', storeId: storeId });
+      replyText(
+        replyToken,
+        '🔒 続けて登録パスワードをそのまま1通だけ送ってください。\n（やめるときは「登録解除」）'
+      );
+      return;
+    }
+    if (storePw !== regPwGlobal) {
+      replyText(
+        replyToken,
+        '🔒 登録パスワードが違います。\n「登録 ' +
+          storeId +
+          '」のあと、別のメッセージでパスワードだけを送ってください。'
+      );
+      return;
+    }
+  }
+
   saveUserRecord(userId, ROLE_STORE, storeId);
-  // 登録直後に位置情報を送ってもらい、店舗座標を自動登録するステップへ
   setSession(userId, STEP_AWAITING_STORE_LOCATION, { storeId });
 
   replyText(replyToken,
     `✅ 店舗として登録しました（${storeId}）\n\n` +
-    `次に📍お店の位置情報を送ってください。\n` +
-    `LINEの入力欄「＋」→「位置情報」から現在地またはお店の場所を送ると座標が自動登録されます。\n\n` +
-    `後で送り直す場合も同じ手順でOKです。`);
+      `次に📍お店の位置情報を送ってください。\n` +
+      `LINEの入力欄「＋」→「位置情報」から現在地またはお店の場所を送ると座標が自動登録されます。\n\n` +
+      `後で送り直す場合も同じ手順でOKです。`);
+}
+
+/**
+ * STEP_AWAITING_REGISTRATION_PASSWORD の1通目を検証して登録を完了する。
+ */
+function handleRegistrationPasswordReply(userId, replyToken, passwordText) {
+  const sess = getSession(userId);
+  if (sess.step !== STEP_AWAITING_REGISTRATION_PASSWORD) return;
+
+  const regPw = getRegistrationPassword_();
+  const pw = String(passwordText || '').trim();
+  if (!regPw || pw !== regPw) {
+    replyText(replyToken, '🔒 登録パスワードが違います。確認してもう一度送るか、「登録解除」でやり直してください。');
+    return;
+  }
+
+  const kind = sess.payload && sess.payload.regKind;
+  if (kind === 'operator') {
+    saveUserRecord(userId, ROLE_OPERATOR, '');
+    deleteSession(userId);
+    replyText(replyToken, '✅ 運営として登録しました。写真または短文→スポット番号→カテゴリの順で投稿できます。');
+    return;
+  }
+  if (kind === 'contributor') {
+    saveUserRecord(userId, ROLE_CONTRIBUTOR, '');
+    setSession(userId, STEP_IDLE, { text: '', imageUrl: '', lat: null, lng: null, spotId: '', spotName: '' });
+    replyText(replyToken, '✅ 協力者として登録しました。\n投稿は 📍位置情報 → 写真・短文 → カテゴリ の流れです。');
+    return;
+  }
+  if (kind === 'store') {
+    const storeId = sess.payload.storeId != null ? String(sess.payload.storeId).trim() : '';
+    if (!storeId) {
+      deleteSession(userId);
+      replyText(replyToken, '⚠️ 登録セッションが無効です。「登録 店舗ID」からやり直してください。');
+      return;
+    }
+    const existing = lookupUserIdByFixedStoreId(storeId);
+    if (existing && existing !== userId) {
+      deleteSession(userId);
+      replyText(replyToken, `⚠️「${storeId}」は別のユーザーが登録済みです。`);
+      return;
+    }
+    saveUserRecord(userId, ROLE_STORE, storeId);
+    setSession(userId, STEP_AWAITING_STORE_LOCATION, { storeId });
+    replyText(replyToken,
+      `✅ 店舗として登録しました（${storeId}）\n\n` +
+        `次に📍お店の位置情報を送ってください。\n` +
+        `LINEの入力欄「＋」→「位置情報」から現在地またはお店の場所を送ると座標が自動登録されます。\n\n` +
+        `後で送り直す場合も同じ手順でOKです。`);
+    return;
+  }
+
+  deleteSession(userId);
+  replyText(replyToken, '⚠️ 登録セッションが無効です。最初からやり直してください。');
 }
 
 function handleCheckCommand(userId, replyToken) {
@@ -1522,9 +1704,9 @@ function buildHelpMessage(userId) {
   const head =
     '📖 コマンド\nマイID / ヘルプ / 登録確認 / 登録解除\n\n' +
     '📍 登録\n' +
-    '・店舗: 「店 風まち」/「登録　風まち」（全角スペース可）ほか\n' +
-    '・運営: 登録 運営 （管理者 or パスワードが必要な場合あり）\n' +
-    '・協力: 登録 協力\n\n';
+    '・店舗: 「店 風まち」/「登録　風まち」→（パスワード設定時のみ）続けてパスワードだけを送信\n' +
+    '・運営: 「登録 運営」→（パスワード設定時のみ）続けてパスワードだけを送信（管理者は不要）\n' +
+    '・協力: 「登録 協力」→（同上）\n\n';
 
   let flow = '';
   const u = getUserRecord(userId);
