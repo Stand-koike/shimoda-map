@@ -526,6 +526,47 @@
            CARD PANEL
            ============================================================ */
         .card-panel-container { position: fixed; z-index: 40; transition: all 0.3s ease; pointer-events: none; }
+        .card-panel-mobile-inner {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            min-height: 0;
+        }
+        .card-panel-handle {
+            display: none;
+            flex-shrink: 0;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+            gap: 3px;
+            width: 100%;
+            padding: 8px 12px 6px;
+            margin: 0;
+            border: none;
+            cursor: pointer;
+            background: transparent;
+            color: #888;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+        .card-panel-handle:focus-visible {
+            outline: 2px solid var(--color-primary);
+            outline-offset: 2px;
+        }
+        .card-panel-handle-pill {
+            width: 40px;
+            height: 4px;
+            border-radius: 4px;
+            background: rgba(0, 0, 0, 0.18);
+        }
+        .card-panel-handle > i {
+            font-size: 12px;
+            line-height: 1;
+            transition: transform 0.3s ease;
+        }
+        body.cards-sheet-collapsed .card-panel-handle > i {
+            transform: rotate(180deg);
+        }
         .scroll-wrapper {
             display: flex; gap: 15px; pointer-events: auto;
             -webkit-overflow-scrolling: touch; scrollbar-width: none;
@@ -540,10 +581,10 @@
         }
         .scroll-wrapper {
             overflow-x: auto; scroll-snap-type: x mandatory;
-            padding: 10px 20px 20px; align-items: flex-end;
+            padding: 10px 20px 22px; align-items: stretch;
         }
         .slide-card {
-            flex: 0 0 260px; height: 280px; background: white; border-radius: 20px;
+            flex: 0 0 268px; min-height: 0; height: auto; background: white; border-radius: 20px;
             box-shadow: var(--shadow-soft); display: flex; flex-direction: column;
             overflow: hidden; scroll-snap-align: center;
             transition: all 0.3s; cursor: pointer;
@@ -555,17 +596,56 @@
                 bottom: calc(54px + env(safe-area-inset-bottom, 0px));
                 padding-bottom: 0;
                 background: none;
+                pointer-events: none;
+            }
+            .card-panel-mobile-inner {
+                pointer-events: auto;
+                max-height: min(52vh, 380px);
+                transition: max-height 0.38s cubic-bezier(0.4, 0, 0.2, 1);
+                overflow: hidden;
+                background: linear-gradient(to bottom, rgba(255, 255, 255, 0.98) 0%, rgba(255, 255, 255, 0.94) 100%);
+                border-radius: 14px 14px 0 0;
+                box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.12);
+            }
+            body.cards-sheet-collapsed .card-panel-mobile-inner {
+                max-height: 42px;
+            }
+            .card-panel-handle {
+                display: flex;
             }
             .scroll-wrapper {
-                padding: 6px 12px 10px; gap: 10px;
+                flex: 1 1 auto;
+                min-height: 0;
+                padding: 4px 14px 18px;
+                gap: 12px;
                 touch-action: pan-x; /* 横スクロールのみ、縦はマップへ */
+                transition: opacity 0.22s ease, padding 0.25s ease;
+            }
+            body.cards-sheet-collapsed .scroll-wrapper {
+                flex: 0 0 0;
+                min-height: 0 !important;
+                max-height: 0 !important;
+                opacity: 0;
+                padding-top: 0 !important;
+                padding-bottom: 0 !important;
+                overflow: hidden !important;
+                pointer-events: none;
             }
             .slide-card {
-                flex: 0 0 180px; height: 162px; border-radius: 14px;
+                flex: 0 0 208px; min-height: 0; height: auto; border-radius: 14px;
                 touch-action: manipulation;
             }
-            .card-image-area { height: 55% !important; }
-            .card-info { padding: 6px 30px 22px 8px !important; }
+            .card-image-area { height: 96px !important; min-height: 76px; flex-shrink: 0; }
+            .card-info {
+                padding: 8px 10px 12px 9px !important;
+                flex: 0 0 auto !important;
+                min-height: 0;
+                align-items: flex-end !important;
+                gap: 6px !important;
+            }
+            .card-info-main {
+                padding-right: 2px !important;
+            }
             .card-title { font-size: 12px !important; margin-bottom: 3px !important; }
             .card-detail-block { margin-top: 2px !important; gap: 1px !important; }
             .card-detail-line { font-size: 9px !important; }
@@ -574,9 +654,18 @@
             .card-ind { min-width: 18px !important; height: 18px !important; font-size: 9px !important; }
             .card-ind--status { width: 9px !important; height: 9px !important; min-width: 9px !important; }
             .live-badge--card-top { font-size: 6px !important; padding: 0 4px !important; }
-            .card-arrow { width: 22px !important; height: 22px !important; bottom: 6px !important; right: 5px !important; font-size: 11px !important; }
+            .card-arrow {
+                width: 22px !important;
+                height: 22px !important;
+                font-size: 11px !important;
+                position: static !important;
+                flex-shrink: 0 !important;
+                align-self: flex-end !important;
+                margin: 0 0 1px 0 !important;
+                box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12) !important;
+            }
             .card-live-post--compact { margin-top: 2px !important; padding: 3px 5px !important; }
-            .tag-chips { margin-top: 2px !important; gap: 3px !important; }
+            .tag-chips { margin-top: 6px !important; gap: 4px !important; padding-bottom: 0 !important; }
             .tag-chip { font-size: 9px !important; padding: 2px 5px !important; }
             /* マップコントロールはカードパネルの右に配置。ボトムナビと被らないよう上げる */
             .map-controls { bottom: auto; top: 60px; right: 12px; }
@@ -594,19 +683,33 @@
                 padding: 0; border-right: 1px solid #eee; pointer-events: auto;
                 transition: transform 0.3s ease;
             }
+            .card-panel-mobile-inner {
+                height: 100%;
+                max-height: none;
+                border-radius: 0;
+                box-shadow: none;
+                background: transparent;
+                overflow: visible;
+            }
+            .card-panel-handle { display: none !important; }
             .scroll-wrapper {
                 height: 100%; overflow-y: auto; flex-direction: column;
                 padding: 20px; gap: 20px; align-items: stretch;
                 scroll-snap-type: y mandatory;
             }
             .slide-card {
-                flex: 0 0 auto; height: 280px; width: 100%;
+                flex: 0 0 auto; min-height: 0; height: auto; width: 100%;
                 scroll-snap-align: start; box-shadow: 0 5px 15px rgba(0,0,0,0.08);
             }
             .slide-card.active { transform: scale(1.02); border-color: var(--color-primary); box-shadow: var(--shadow-soft); }
-            .card-image-area { height: 65% !important; }
+            .card-image-area { height: 156px !important; min-height: 120px; flex-shrink: 0; }
             .card-emoji-placeholder { font-size: 60px !important; }
-            .card-info { padding: 15px 42px 15px 15px !important; }
+            .card-info {
+                padding: 14px 12px 18px 15px !important;
+                align-items: flex-end !important;
+                gap: 10px !important;
+            }
+            .card-info-main { padding-right: 4px !important; }
             .card-title { font-size: 16px !important; margin-bottom: 8px !important; }
             .card-detail-block { margin-top: 4px !important; gap: 3px !important; }
             .card-detail-line { font-size: 11px !important; }
@@ -616,18 +719,28 @@
             .card-ind--status { width: 12px !important; height: 12px !important; min-width: 12px !important; }
             .live-badge--card-top { font-size: 8px !important; padding: 2px 7px !important; }
             .card-arrow {
-                width: 32px !important; height: 32px !important;
-                bottom: 15px !important; right: 15px !important; font-size: 14px !important;
+                width: 32px !important;
+                height: 32px !important;
+                font-size: 14px !important;
+                position: static !important;
+                flex-shrink: 0 !important;
+                align-self: flex-end !important;
+                margin: 0 0 2px 0 !important;
             }
             .card-live-post--compact { margin-top: 5px !important; padding: 5px 8px !important; }
-            .tag-chips { margin-top: 6px !important; gap: 4px !important; }
+            .tag-chips { margin-top: 6px !important; gap: 4px !important; padding-bottom: 6px !important; }
             .tag-chip { font-size: 10px !important; padding: 3px 8px !important; }
             .map-controls { bottom: 30px; }
         }
 
         /* カード内容 */
         .slide-card.active { border-color: var(--color-primary); }
-        .card-image-area { width: 100%; height: 62%; position: relative; overflow: hidden; background: #f7f7f7; }
+        .card-image-area {
+            width: 100%; flex-shrink: 0;
+            height: 124px;
+            min-height: 100px;
+            position: relative; overflow: hidden; background: #f7f7f7;
+        }
         .card-thumb { width: 100%; height: 100%; object-fit: cover; }
         .card-emoji-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 48px; background: var(--color-secondary); }
         /* 画像上：各フィールドの有無のみ（テキスト本文は出さない） */
@@ -658,7 +771,25 @@
             padding: 2px 6px; border-radius: 3px;
             animation: none;
         }
-        .card-info { flex: 1; padding: 10px 38px 10px 12px; display: flex; flex-direction: column; justify-content: flex-start; min-height: 0; position: relative; z-index: 0; }
+        .card-info {
+            flex: 0 0 auto;
+            min-height: 0;
+            padding: 11px 11px 14px 13px;
+            display: flex;
+            flex-direction: row;
+            align-items: flex-end;
+            justify-content: flex-start;
+            gap: 8px;
+            position: relative;
+            z-index: 0;
+        }
+        .card-info-main {
+            flex: 1 1 auto;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+        }
         .card-hours-line { pointer-events: none; }
         .card-title { font-size: 14px; font-weight: bold; color: var(--color-text-main); margin-bottom: 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .card-detail-block {
@@ -686,17 +817,32 @@
         }
         .flash-news-tag * { pointer-events: none; }
         .card-arrow {
-            position: absolute; bottom: 11px; right: 11px;
-            width: 26px; height: 26px; border-radius: 50%; background: #f5f5f5;
-            display: flex; align-items: center; justify-content: center;
-            color: #666; font-size: 12px; transition: all 0.2s;
-            z-index: 10; cursor: pointer; pointer-events: auto;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+            position: static;
+            flex-shrink: 0;
+            align-self: flex-end;
+            margin: 0 0 2px 0;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            background: #f5f5f5;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #666;
+            font-size: 12px;
+            transition: all 0.2s;
+            z-index: 10;
+            cursor: pointer;
+            pointer-events: auto;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
         }
         .slide-card.active .card-arrow { background: var(--color-primary); color: white; }
 
         /* タグチップ */
-        .tag-chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+        .tag-chips {
+            display: flex; flex-wrap: wrap; gap: 5px; margin-top: 8px;
+            flex-shrink: 0; padding-bottom: 4px;
+        }
         .tag-chip {
             font-size: 10px; padding: 3px 8px; border-radius: 20px;
             background: #E0F7FF; color: #0077B6; font-weight: bold;
@@ -1265,7 +1411,16 @@
 
 <!-- CARD PANEL -->
 <div class="card-panel-container">
-    <div class="scroll-wrapper" id="slide-panel"></div>
+    <div class="card-panel-mobile-inner">
+        <button type="button" class="card-panel-handle" id="card-panel-handle"
+            aria-expanded="true" aria-controls="slide-panel"
+            aria-label="店舗カードを隠す"
+            onclick="event.stopPropagation(); UIModule.toggleCardsSheet();">
+            <span class="card-panel-handle-pill" aria-hidden="true"></span>
+            <i class="fas fa-chevron-down" aria-hidden="true"></i>
+        </button>
+        <div class="scroll-wrapper" id="slide-panel"></div>
+    </div>
 </div>
 
 <!-- SIDEBAR TOGGLE (PC only) -->
@@ -2289,6 +2444,7 @@ const MapModule = {
             const pc = window.innerWidth >= 768;
             if (State.isPC !== pc) {
                 State.isPC = pc;
+                if (pc) document.body.classList.remove('cards-sheet-collapsed');
                 setTimeout(() => {
                     this._map.resize();
                     if (State.allSpots.length > 0) this.fitBounds();
@@ -2541,6 +2697,31 @@ const UIModule = {
     toggleSidebar() {
         document.body.classList.toggle('sidebar-collapsed');
         setTimeout(() => { if (MapModule._map) MapModule._map.resize(); }, 310);
+    },
+
+    /** モバイル: 下部カードシートの折りたたみ（PCでは無効） */
+    toggleCardsSheet() {
+        if (State.isPC) return;
+        document.body.classList.toggle('cards-sheet-collapsed');
+        const btn = document.getElementById('card-panel-handle');
+        if (btn) {
+            const collapsed = document.body.classList.contains('cards-sheet-collapsed');
+            btn.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
+            btn.setAttribute('aria-label', collapsed ? '店舗一覧を表示' : '店舗カードを隠す');
+        }
+        setTimeout(() => { if (MapModule._map) MapModule._map.resize(); }, 380);
+    },
+
+    expandCardsSheetIfCollapsed() {
+        if (State.isPC) return;
+        if (!document.body.classList.contains('cards-sheet-collapsed')) return;
+        document.body.classList.remove('cards-sheet-collapsed');
+        const btn = document.getElementById('card-panel-handle');
+        if (btn) {
+            btn.setAttribute('aria-expanded', 'true');
+            btn.setAttribute('aria-label', '店舗カードを隠す');
+        }
+        setTimeout(() => { if (MapModule._map) MapModule._map.resize(); }, 380);
     },
 
     // ---- マーカー ----
@@ -2845,10 +3026,12 @@ const UIModule = {
             card.innerHTML = `
                 <div class="card-image-area">${thumbHtml}${placeholder}${indicatorsHtml}</div>
                 <div class="card-info">
-                    <div class="card-title">${val(spot, 'name')}</div>
-                    ${detailHtml}
-                    ${tagsHtml}
-                    ${livePostHtml}
+                    <div class="card-info-main">
+                        <div class="card-title">${val(spot, 'name')}</div>
+                        ${detailHtml}
+                        ${tagsHtml}
+                        ${livePostHtml}
+                    </div>
                     <div class="card-arrow" role="button" aria-label="詳細">
                         <i class="fas fa-arrow-right"></i>
                     </div>
@@ -3462,6 +3645,7 @@ const App = {
             UIModule.toggleSidebar();
         }
         MapModule.flyTo(spot);
+        UIModule.expandCardsSheetIfCollapsed();
         UIModule.highlightCard(spot);
         gtag('event', 'select_content', { content_type: 'spot', item_id: spot.name });
     },
