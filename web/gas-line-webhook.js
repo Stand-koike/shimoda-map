@@ -1642,6 +1642,22 @@ function setupSheets() {
     console.log('✅ venue_spots');
   }
 
+  const EVENT_SHEET = 'event_schedule';
+  if (!ss.getSheetByName(EVENT_SHEET)) {
+    const s = insertSheetAtEnd_(ss, EVENT_SHEET);
+    s.appendRow([
+      'event_id', 'title', 'start_at', 'lat', 'lng',
+      'emoji', 'duration_minutes', 'lead_minutes', 'hidden', 'title_en'
+    ]);
+    s.appendRow([
+      'ev_001', '大道芸', '2026-07-19 12:00:00',
+      34.6801, 138.9430, '🎪', 60, 30, '', 'Street Performance'
+    ]);
+    s.setFrozenRows(1);
+    s.getRange('A1:J1').setBackground('#E65100').setFontColor('#FFFFFF').setFontWeight('bold');
+    console.log('✅ event_schedule');
+  }
+
   ensureMasterSheetIsGvizFirst_(ss);
   console.log('setupSheets OK');
 }

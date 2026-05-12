@@ -4,7 +4,6 @@
  */
 import { loadCheckpoints } from './services/checkpointService.js';
 import { RouteService } from './services/routeService.js';
-import { iconUrlToImageBitmap } from './services/mapService.js';
 
 const CP_URL = new URL('../public/data/checkpoints.geojson', import.meta.url).href;
 const SEG_URL = new URL('../public/data/route_segments.geojson', import.meta.url).href;
@@ -57,7 +56,7 @@ function maybeEnableGithubPagesAutoDemo(rs) {
   if (previewUrlActive || !rs) return;
   try {
     if (!/\.github\.io$/i.test(location.hostname)) return;
-    const q = new URLSearchParams(location.search);
+    const q = new URLSearchParams(window.location.search);
     if (q.get('mikoshiLive') === '1') return;
     const sched = rs.getSchedule();
     if (!sched.length) return;
@@ -75,7 +74,7 @@ function maybeEnableGithubPagesAutoDemo(rs) {
   }
 }
 
-/** プレビュー中は「スケジュール上のいま」（時刻の早送り・終了後はループ）。通常は実時刻。 */
+/** プレビュー中は「スケジュール上のいま」（時刻の早送り・終了後はループ）。通常は実時間。 */
 function scheduleNowMs() {
   if (!previewUrlActive || !previewClock || !routeService) return Date.now();
   const sched = routeService.getSchedule();
@@ -118,7 +117,6 @@ function initPreviewClock(routeServiceInstance) {
 const SOURCE_ROUTE = 'mikoshi-route-line';
 const SOURCE_PROGRESS = 'mikoshi-route-progress';
 const SOURCE_CP = 'mikoshi-checkpoints';
-const SOURCE_MIKOSHI = 'mikoshi-position';
 
 /** @type {import('mapbox-gl').Map | null} */
 let map = null;
@@ -126,14 +124,10 @@ let map = null;
 let routeService = null;
 /** @type {number | null} */
 let rafId = null;
-let iconSize = 0.57;
+/** @type {import('mapbox-gl').Marker | null} */
+let mikoshiMarker = null;
 
-const LAYER_IDS = [
-  'mikoshi-layer-route',
-  'mikoshi-layer-progress',
-  'mikoshi-layer-checkpoints',
-  'mikoshi-layer-symbol'
-];
+const LAYER_IDS = ['mikoshi-layer-route', 'mikoshi-layer-progress', 'mikoshi-layer-checkpoints'];
 
 function isWithinScheduleWindow() {
   if (!routeService) return false;
@@ -162,22 +156,53 @@ function applyCombinedVisibility() {
       map.setLayoutProperty(id, 'visibility', vis);
     }
   }
+  if (mikoshiMarker) {
+    mikoshiMarker.getElement().style.display = show ? '' : 'none';
+  }
 }
 
-function setMikoshiPoint(lng, lat, bearing) {
-  if (!map?.getSource(SOURCE_MIKOSHI)) return;
-  map.getSource(SOURCE_MIKOSHI).setData({
-    type: 'FeatureCollection',
-    features: [
-      {
-        type: 'Feature',
-        properties: { bearing },
-        geometry: { type: 'Point', coordinates: [lng, lat] }
-      }
-    ]
-  });
-  if (map.getLayer('mikoshi-layer-symbol')) {
-    map.setLayoutProperty('mikoshi-layer-symbol', 'icon-size', iconSize);
+function createMikoshiMarkerElement() {
+  const root = document.createElement('div');
+  root.className = 'mikoshi-marker';
+  const shadow = document.createElement('div');
+  shadow.className = 'mikoshi-marker-shadow';
+  const body = document.createElement('div');
+  body.className = 'mikoshi-marker-body';
+  const img = document.createElement('img');
+  img.className = 'mikoshi-marker-img';
+  img.src = ICON_URL;
+  img.alt = '';
+  img.decoding = 'async';
+  img.draggable = false;
+  root.appendChild(shadow);
+  root.appendChild(body);
+  body.appendChild(img);
+  return root;
+}
+
+/**
+ * @param {{ lng: number, lat: number }} initialState
+ */
+function ensureMikoshiMarker(initialState) {
+  const Mb = window.mapboxgl;
+  if (!Mb || !map || mikoshiMarker) return;
+  const el = createMikoshiMarkerElement();
+  mikoshiMarker = new Mb.Marker({
+    element: el,
+    anchor: 'bottom',
+    rotationAlignment: 'map',
+    pitchAlignment: 'map'
+  })
+    .setLngLat([initialState.lng, initialState.lat])
+    .addTo(map);
+  applyCombinedVisibility();
+}
+
+function updateMikoshiMarker(lng, lat, bearing) {
+  if (!mikoshiMarker) return;
+  mikoshiMarker.setLngLat([lng, lat]);
+  if (typeof mikoshiMarker.setRotation === 'function') {
+    mikoshiMarker.setRotation(bearing);
   }
 }
 
@@ -205,7 +230,7 @@ function tick() {
   }
   const st = routeService.getState(now);
   const bearing = typeof st.bearing === 'number' ? st.bearing : 0;
-  setMikoshiPoint(st.lng, st.lat, bearing);
+  updateMikoshiMarker(st.lng, st.lat, bearing);
   if (st.traversedLine && st.traversedLine.geometry) {
     setProgressFeat(st.traversedLine);
   } else {
@@ -250,12 +275,6 @@ export async function attachToMainMap(mapboxMap) {
     const mergedFc = { type: 'FeatureCollection', features: [merged] };
     const initial = routeService.getState(scheduleNowMs());
 
-    if (!map.hasImage('mikoshi-icon')) {
-      const canvas = await iconUrlToImageBitmap(ICON_URL, 128);
-      const bitmap = await createImageBitmap(canvas);
-      map.addImage('mikoshi-icon', bitmap, { pixelRatio: 2 });
-    }
-
     if (!map.getSource(SOURCE_ROUTE)) {
       map.addSource(SOURCE_ROUTE, { type: 'geojson', data: mergedFc });
       map.addSource(SOURCE_PROGRESS, {
@@ -263,19 +282,6 @@ export async function attachToMainMap(mapboxMap) {
         data: { type: 'FeatureCollection', features: [] }
       });
       map.addSource(SOURCE_CP, { type: 'geojson', data: cpFc });
-      map.addSource(SOURCE_MIKOSHI, {
-        type: 'geojson',
-        data: {
-          type: 'FeatureCollection',
-          features: [
-            {
-              type: 'Feature',
-              properties: { bearing: 0 },
-              geometry: { type: 'Point', coordinates: [initial.lng, initial.lat] }
-            }
-          ]
-        }
-      });
     }
 
     if (!map.getLayer('mikoshi-layer-route')) {
@@ -302,20 +308,9 @@ export async function attachToMainMap(mapboxMap) {
           'circle-stroke-color': '#0277bd'
         }
       });
-      map.addLayer({
-        id: 'mikoshi-layer-symbol',
-        type: 'symbol',
-        source: SOURCE_MIKOSHI,
-        layout: {
-          'icon-image': 'mikoshi-icon',
-          'icon-size': iconSize,
-          'icon-allow-overlap': true,
-          'icon-ignore-placement': true,
-          'icon-rotation-alignment': 'map',
-          'icon-rotate': ['get', 'bearing']
-        }
-      });
     }
+
+    ensureMikoshiMarker(initial);
 
     window.__mikoshiApplyVisibility = applyCombinedVisibility;
 

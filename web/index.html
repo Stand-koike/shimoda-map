@@ -405,8 +405,65 @@
         }
 
         /* GPS 現在地 */
-        .my-location-marker { width: 50px; height: 50px; display: flex; justify-content: center; align-items: center; pointer-events: none; }
-        .my-location-marker i { color: #FF5252; font-size: 45px; filter: drop-shadow(0 2px 5px rgba(255,255,255,0.8)); }
+        .my-location-marker {
+            width: 44px; height: 44px;
+            display: flex; justify-content: center; align-items: flex-end;
+            pointer-events: none;
+        }
+        .my-location-marker i {
+            color: #FF5252; font-size: 38px; line-height: 1;
+            filter: drop-shadow(0 2px 5px rgba(255,255,255,0.85));
+        }
+
+        /* 神輿ルート — HTMLマーカー（立体的な浮遊演出） */
+        .mikoshi-marker {
+            position: relative;
+            width: 72px;
+            height: 78px;
+            pointer-events: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-end;
+        }
+        .mikoshi-marker-shadow {
+            position: absolute;
+            bottom: 6px;
+            left: 50%;
+            width: 42px;
+            height: 12px;
+            margin-left: -21px;
+            background: radial-gradient(ellipse at center, rgba(0, 40, 80, 0.45) 0%, rgba(0, 40, 80, 0.08) 70%, transparent 100%);
+            border-radius: 50%;
+            filter: blur(3px);
+            transform-origin: center center;
+            animation: mikoshi-shadow-breathe 2.6s ease-in-out infinite;
+            z-index: 0;
+        }
+        .mikoshi-marker-body {
+            position: relative;
+            z-index: 1;
+            transform-origin: center bottom;
+            animation: mikoshi-float-tilt 2.8s ease-in-out infinite;
+        }
+        .mikoshi-marker-img {
+            width: 58px;
+            height: auto;
+            display: block;
+            filter: drop-shadow(0 6px 10px rgba(0, 60, 100, 0.35));
+        }
+        @keyframes mikoshi-float-tilt {
+            0%, 100% {
+                transform: translateY(0) rotate(-5deg) perspective(120px) rotateX(4deg);
+            }
+            50% {
+                transform: translateY(-12px) rotate(5deg) perspective(120px) rotateX(-6deg);
+            }
+        }
+        @keyframes mikoshi-shadow-breathe {
+            0%, 100% { transform: scaleX(1) scaleY(1); opacity: 0.85; }
+            50% { transform: scaleX(0.75) scaleY(0.85); opacity: 0.55; }
+        }
 
         /* ============================================================
            MAP CONTROLS (右下)
@@ -1138,6 +1195,12 @@ const CONFIG = {
     POSTS_SHEET:           _secrets.POSTS_SHEET           || 'posts',
     LIVE_POST_POLL_INTERVAL: 30000,
 
+    // イベントスケジュールシート
+    EVENTS_SHEET:                 _secrets.EVENTS_SHEET || 'event_schedule',
+    EVENT_SCHEDULE_LEAD_MINUTES:  30,   // 開始何分前にピンを出すか
+    EVENT_SCHEDULE_POLL_INTERVAL: 60000, // シート再取得間隔 (ms)
+    EVENT_SCHEDULE_TICK_MS:       60000, // 表示ウィンドウ再評価間隔 (ms)
+
     TRANSLATIONS: {
         ja: {
             all: 'すべて', go: 'Google Mapsで見る', coupon: 'クーポンを使う',
@@ -1174,7 +1237,10 @@ const State = {
     liveStandalonePosts: [],     // 運営スポット / GPS（独立マーカー）
     liveMarkers:           [],
     livePostPollInterval:  null,
-    tickerList:            []
+    tickerList:            [],
+    scheduledEvents:       [],   // EventScheduleModule がセット
+    scheduleMarkers:       [],   // スケジュールピン (MapboxGL Marker)
+    scheduleTickInterval:  null  // 1 分ティック
 };
 
 // ================================================================
@@ -1677,6 +1743,117 @@ window._gvizPostsCb = function(json) {
 };
 
 // ================================================================
+// EventScheduleModule — 祭スケジュール（event_schedule シート）取得・パース
+// ================================================================
+const EventScheduleModule = {
+
+    _fetchTimeout: null,
+
+    fetch() {
+        const cbName = '_gvizEventsCb';
+        const oldScript = document.getElementById('gviz-events-script');
+        if (oldScript) oldScript.remove();
+
+        clearTimeout(this._fetchTimeout);
+        this._fetchTimeout = setTimeout(() => {
+            console.warn('[EventSchedule] タイムアウト');
+        }, 12000);
+
+        const script = document.createElement('script');
+        script.id = 'gviz-events-script';
+        const sheetParam = encodeURIComponent(CONFIG.EVENTS_SHEET || 'event_schedule');
+        script.src =
+            `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq?tqx=responseHandler:${cbName}&sheet=${sheetParam}&_=${Date.now()}`;
+        script.onerror = () => {
+            clearTimeout(this._fetchTimeout);
+            console.warn('[EventSchedule] シート取得失敗');
+        };
+        document.body.appendChild(script);
+    },
+
+    onLoaded(json) {
+        clearTimeout(this._fetchTimeout);
+        State.scheduledEvents = this._parse(json);
+        App._applyFilters();
+    },
+
+    /**
+     * 列 (0-index):
+     *  0: event_id  1: title  2: start_at  3: lat  4: lng
+     *  5: emoji     6: duration_minutes  7: lead_minutes
+     *  8: hidden    9: title_en
+     */
+    _parse(json) {
+        if (!json?.table?.rows) return [];
+        const events = [];
+        json.table.rows.forEach((row, i) => {
+            if (!row?.c) return;
+
+            // hidden 列が false/"FALSE" なら除外
+            if (row.c[8]?.v === false || String(row.c[8]?.v).toUpperCase() === 'FALSE') return;
+
+            const title   = row.c[1]?.v != null ? String(row.c[1].v).trim() : '';
+            if (!title) return;
+
+            const startAt = parseSheetDate(row.c[2]?.v);
+            if (!startAt) return;
+
+            const lat = row.c[3]?.v != null ? Number(row.c[3].v) : null;
+            const lng = row.c[4]?.v != null ? Number(row.c[4].v) : null;
+            if (lat == null || lng == null || isNaN(lat) || isNaN(lng)) return;
+
+            const emoji    = row.c[5]?.v ? String(row.c[5].v).trim() : '🎪';
+            const durMin   = row.c[6]?.v != null && row.c[6].v !== '' ? Number(row.c[6].v) : 60;
+            const leadMin  = row.c[7]?.v != null && row.c[7].v !== ''
+                ? Number(row.c[7].v)
+                : CONFIG.EVENT_SCHEDULE_LEAD_MINUTES;
+            const titleEn  = row.c[9]?.v ? String(row.c[9].v).trim() : title;
+            const eventId  = row.c[0]?.v ? String(row.c[0].v).trim() : `ev_${i}`;
+
+            events.push({
+                id:        eventId,
+                title,
+                titleEn,
+                startAt,
+                endAt:     new Date(startAt.getTime() + durMin * 60000),
+                leadMs:    leadMin * 60000,
+                coords:    [lng, lat],
+                emoji
+            });
+        });
+        return events;
+    },
+
+    /** 表示すべきイベントだけ返す */
+    visible(now = Date.now()) {
+        return State.scheduledEvents.filter(ev => {
+            const showFrom = ev.startAt.getTime() - ev.leadMs;
+            return now >= showFrom && now < ev.endAt.getTime();
+        });
+    },
+
+    startPolling() {
+        if (!CONFIG.EVENT_SCHEDULE_POLL_INTERVAL) return;
+        setInterval(() => EventScheduleModule.fetch(), CONFIG.EVENT_SCHEDULE_POLL_INTERVAL);
+    },
+
+    /** 1 分ティック: レイヤーのみ再描画（シートは再取得しない） */
+    startTick() {
+        if (!CONFIG.EVENT_SCHEDULE_TICK_MS) return;
+        clearInterval(State.scheduleTickInterval);
+        State.scheduleTickInterval = setInterval(
+            () => App._applyFilters(),
+            CONFIG.EVENT_SCHEDULE_TICK_MS
+        );
+    }
+};
+
+window._gvizEventsCb = function(json) {
+    clearTimeout(EventScheduleModule._fetchTimeout);
+    EventScheduleModule.onLoaded(json);
+};
+
+// ================================================================
 // LayerManager — レイヤー管理
 // ================================================================
 const LayerManager = {
@@ -1720,6 +1897,14 @@ const LayerManager = {
             color:   '#C62828',
             visible: true,
             type:    'mikoshi'
+        },
+        events: {
+            name:    '祭スケジュール',
+            name_en: 'Event Schedule',
+            icon:    '🎪',
+            color:   '#F57C00',
+            visible: true,
+            type:    'markers'
         }
     },
 
@@ -1756,12 +1941,19 @@ const LayerManager = {
         def.visible = !def.visible;
 
         if (def.type === 'markers') {
-            State.activeMarkers.forEach(m => {
-                m.getElement().style.display = def.visible ? '' : 'none';
-            });
-            State.liveMarkers.forEach(m => {
-                m.getElement().style.display = def.visible ? '' : 'none';
-            });
+            // spots と events は両方 type:markers だが DOM は別配列（混在させない）
+            if (id === 'spots') {
+                State.activeMarkers.forEach(m => {
+                    m.getElement().style.display = def.visible ? '' : 'none';
+                });
+                State.liveMarkers.forEach(m => {
+                    m.getElement().style.display = def.visible ? '' : 'none';
+                });
+            } else if (id === 'events') {
+                State.scheduleMarkers.forEach(m => {
+                    m.getElement().style.display = def.visible ? '' : 'none';
+                });
+            }
         } else if (def.type === 'mikoshi') {
             if (typeof window.__mikoshiApplyVisibility === 'function') {
                 window.__mikoshiApplyVisibility();
@@ -1962,8 +2154,8 @@ const MapModule = {
                 if (!State.userLocationMarker) {
                     const el = document.createElement('div');
                     el.className = 'my-location-marker';
-                    el.innerHTML = '<i class="fas fa-child-reaching"></i>';
-                    State.userLocationMarker = new mapboxgl.Marker({ element: el })
+                    el.innerHTML = '<i class="fas fa-map-marker-alt"></i>';
+                    State.userLocationMarker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
                         .setLngLat(coords).addTo(this._map);
                 } else {
                     State.userLocationMarker.setLngLat(coords);
@@ -2130,8 +2322,10 @@ const UIModule = {
     updateMarkers(spots) {
         State.activeMarkers.forEach(m => m.remove());
         State.liveMarkers.forEach(m => m.remove());
+        State.scheduleMarkers.forEach(m => m.remove());
         State.activeMarkers = [];
         State.liveMarkers = [];
+        State.scheduleMarkers = [];
 
         const spotsVisible = LayerManager.getDefs().spots.visible;
 
@@ -2242,6 +2436,62 @@ const UIModule = {
 
             State.liveMarkers.push(marker);
         });
+
+        /* 祭スケジュール ピン（レイヤーOFFでも DOM は生成し display で切替／toggle と整合） */
+        const eventsVisible = LayerManager.getDefs().events?.visible;
+        const nowEv = Date.now();
+        EventScheduleModule.visible(nowEv).forEach(ev => {
+                const isUpcoming = nowEv < ev.startAt.getTime();
+                const accentColor = '#F57C00';
+
+                const el = document.createElement('div');
+                el.className = 'custom-marker';
+                el.id = `ev-marker-${ev.id}`;
+                if (!eventsVisible) el.style.display = 'none';
+
+                const inner = document.createElement('div');
+                inner.className = 'marker-inner floating';
+                inner.style.borderColor = accentColor;
+
+                const clip = document.createElement('div');
+                clip.className = 'marker-clip';
+
+                const emoji = document.createElement('span');
+                emoji.className = 'marker-emoji';
+                emoji.innerText = ev.emoji;
+                clip.appendChild(emoji);
+                inner.appendChild(clip);
+
+                if (isUpcoming) {
+                    const badge = document.createElement('div');
+                    badge.className = 'marker-news-badge';
+                    badge.style.background = accentColor;
+                    badge.innerHTML = '<i class="fas fa-clock"></i>';
+                    el.appendChild(badge);
+                }
+
+                el.appendChild(inner);
+
+                const title  = State.language === 'ja' ? ev.title : ev.titleEn;
+                const startFmt = ev.startAt.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+                const endFmt   = ev.endAt.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
+                const statusText = isUpcoming
+                    ? `<span style="color:${accentColor};font-weight:bold;">まもなく開始</span>`
+                    : `<span style="color:#2E7D32;font-weight:bold;">開催中</span>`;
+                const popupHtml = `<div style="max-width:240px;font-size:13px;line-height:1.5">
+                    <div style="font-size:20px;text-align:center;margin-bottom:4px">${ev.emoji}</div>
+                    <div style="font-weight:bold;font-size:14px">${escapeHtml(title)}</div>
+                    <div style="font-size:11px;color:#666;margin-top:2px">${startFmt} – ${endFmt}</div>
+                    <div style="margin-top:4px">${statusText}</div>
+                </div>`;
+
+                const schedMarker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
+                    .setLngLat(ev.coords)
+                    .setPopup(new mapboxgl.Popup({ offset: 28 }).setHTML(popupHtml))
+                    .addTo(MapModule._map);
+
+                State.scheduleMarkers.push(schedMarker);
+            });
     },
 
     // ---- カードパネル ----
@@ -2829,6 +3079,9 @@ const App = {
             this._postsInitialized = true;
             PostsModule.fetch();
             PostsModule.startPolling();
+            EventScheduleModule.fetch();
+            EventScheduleModule.startPolling();
+            EventScheduleModule.startTick();
         }
 
         if (spots.length > 0 && this._selectedCategories.size === 0) {

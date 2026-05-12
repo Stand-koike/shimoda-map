@@ -26,10 +26,32 @@ Google スプレッドシートをデータソースに、**イラスト地図**
 
 ### LIVE 投稿（黒船祭マップ運用）
 
-- GAS で `setupSheets()` を実行すると **`posts`** / **`venue_spots`** / **`bot_sessions`** などが作られます（既存 **`user_map`** は列拡張しても読み込み互換があります）。  
+- GAS で `setupSheets()` を実行すると **`posts`** / **`venue_spots`** / **`bot_sessions`** / **`event_schedule`** などが作られます（既存 **`user_map`** は列拡張しても読み込み互換があります）。  
 - マップは **`posts`** シートのみを読みます（名前は `secrets.local.js` の `POSTS_SHEET` で変更可能、既定 `posts`）。  
 - **モデレーション**: `posts.isVisible` を `FALSE` にするとブラウザ側で非表示になります（行削除も可）。  
 - **運営スポット**: `venue_spots` に `spotId,name,lat,lng,type` で会場ピンを登録してから、運営ロールが LINE で番号選択します。
+
+### 祭イベントスケジュールピン
+
+`event_schedule` シートに 1 行 1 イベントを入れると、**開始の 30 分前から終了まで**マップにピンが自動で現れます。
+
+| 列 | 内容 |
+|----|------|
+| A (event_id) | 一意 ID（例 `ev_001`）|
+| B (title) | イベント名（日本語）|
+| C (start_at) | 開始日時。`2026-07-19 12:00:00` や ISO 形式で入力（シートのタイムゾーンを JST に設定すること）|
+| D (lat) | 緯度 |
+| E (lng) | 経度 |
+| F (emoji) | アイコン絵文字（省略時 🎪）|
+| G (duration_minutes) | 開催時間（分）。省略時 60 分 |
+| H (lead_minutes) | 何分前からピンを出すか。省略時はシステム既定（30 分）|
+| I (hidden) | `FALSE` で非表示 |
+| J (title_en) | 英語タイトル（省略可）|
+
+- シートは **「リンクを知っている全員が閲覧可」** に公開してください（他シートと同じ gviz 取得のため）。
+- ピンをレイヤーパネルの「祭スケジュール」トグルで一括 ON/OFF できます。
+- シートは 60 秒ごとに自動再取得し、表示ウィンドウも 1 分ごとに再評価されます。
+- シート名は `secrets.local.js` の `EVENTS_SHEET` キーで変更できます（既定 `event_schedule`）。
 
 **ローカルで試す**:
 
@@ -49,6 +71,7 @@ python -m http.server 8080
    - **`MAPBOX_PUBLIC_TOKEN`** … Mapbox 公開トークン `pk.*`  
    - **`GOOGLE_SHEET_ID`** … スプレッドシート ID（URL の `/d/` と `/edit` のあいだ）  
    - **`POSTS_SHEET`**（任意）… 既定は `posts`  
+   - **`EVENTS_SHEET`**（任意）… 祭スケジュールシート名。既定は `event_schedule`  
 3. `main` へ push すると `.github/workflows/pages.yml` が走り、**artifact として `web/` だけ**が公開される。Workflow 内で **`web/secrets.local.js` をシークレットから生成**するため、ローカル用ファイルを Git に含めなくてよい。既定ブランチが `main` でない場合は `pages.yml` の `on.push.branches` を合わせる。  
 4. デプロイで **Multiple artifacts named "github-pages"** となる場合は、リポジトリの **`.github/workflows/` に Pages 用の yml が二重**（例: GitHub が自動生成した `static.yml` と自作の `pages.yml`）にないか確認し、**`upload-pages-artifact` を実行するワークフローはひとつ**にする。
 
