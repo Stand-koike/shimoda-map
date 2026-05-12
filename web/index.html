@@ -2003,7 +2003,7 @@ const EventScheduleModule = {
      * 列 (0-index):
      *  0: event_id  1: title  2: start_at  3: lat  4: lng
      *  5: emoji     6: duration_minutes  7: lead_minutes
-     *  8: hidden    9: title_en
+     *  8: hidden    9: title_en  10: image_url（任意・ポップアップに1枚）
      */
     _parse(json) {
         if (!json?.table?.rows) return [];
@@ -2030,6 +2030,9 @@ const EventScheduleModule = {
                 ? Number(row.c[7].v)
                 : CONFIG.EVENT_SCHEDULE_LEAD_MINUTES;
             const titleEn  = row.c[9]?.v ? String(row.c[9].v).trim() : title;
+            const imageUrl = row.c[10]?.v != null && String(row.c[10].v).trim() !== ''
+              ? String(row.c[10].v).trim()
+              : '';
             const eventId  = row.c[0]?.v ? String(row.c[0].v).trim() : `ev_${i}`;
 
             events.push({
@@ -2040,7 +2043,8 @@ const EventScheduleModule = {
                 endAt:     new Date(startAt.getTime() + durMin * 60000),
                 leadMs:    leadMin * 60000,
                 coords:    [lng, lat],
-                emoji
+                emoji,
+                imageUrl
             });
         });
         return events;
@@ -2702,6 +2706,18 @@ const UIModule = {
                 const clip = document.createElement('div');
                 clip.className = 'marker-clip';
 
+                if (ev.imageUrl) {
+                    const imgPin = document.createElement('img');
+                    imgPin.className = 'marker-image';
+                    imgPin.alt = '';
+                    imgPin.referrerPolicy = 'no-referrer';
+                    imgPin.src = ev.imageUrl;
+                    imgPin.onerror = function () {
+                        try { this.remove(); } catch (ex) {}
+                    };
+                    clip.appendChild(imgPin);
+                }
+
                 const emoji = document.createElement('span');
                 emoji.className = 'marker-emoji';
                 emoji.innerText = ev.emoji;
@@ -2724,8 +2740,12 @@ const UIModule = {
                 const statusText = isUpcoming
                     ? `<span style="color:${accentColor};font-weight:bold;">まもなく開始</span>`
                     : `<span style="color:#2E7D32;font-weight:bold;">開催中</span>`;
+                const imgHtml = ev.imageUrl
+                    ? `<div style="margin-top:8px"><img src="${escapeHtml(ev.imageUrl)}" alt="" referrerpolicy="no-referrer" style="max-width:100%;width:100%;max-height:200px;object-fit:cover;border-radius:8px;display:block" onerror="this.style.display='none'"/></div>`
+                    : '';
                 const popupHtml = `<div style="max-width:240px;font-size:13px;line-height:1.5">
                     <div style="font-size:20px;text-align:center;margin-bottom:4px">${ev.emoji}</div>
+                    ${imgHtml}
                     <div style="font-weight:bold;font-size:14px">${escapeHtml(title)}</div>
                     <div style="font-size:11px;color:#666;margin-top:2px">${startFmt} – ${endFmt}</div>
                     <div style="margin-top:4px">${statusText}</div>

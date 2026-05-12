@@ -38,20 +38,35 @@ var __webhookSheetIdRuntimeOverride_ = '';
 /**
  * スプレッドシート ID。
  * 優先: 実行時オーバーライド → スクリプトプロパティ（SHEET_ID / YOUR_GOOGLE_SHEET_ID）→ WEBHOOK_CONFIG（空でなければ）
+ * 同一 webhook メッセージ処理内では結果をメモ化する。
  */
+/** 同一実行内の getWebhookSheetId_ 結果（webhook イベント開始時にクリア） */
+var __webhookSheetIdMemo_ = undefined;
+
 function getWebhookSheetId_() {
-  if (__webhookSheetIdRuntimeOverride_) return __webhookSheetIdRuntimeOverride_;
+  if (__webhookSheetIdMemo_ !== undefined) return __webhookSheetIdMemo_;
+  if (__webhookSheetIdRuntimeOverride_) {
+    __webhookSheetIdMemo_ = __webhookSheetIdRuntimeOverride_;
+    return __webhookSheetIdMemo_;
+  }
   var props = PropertiesService.getScriptProperties();
   var keys = ['SHEET_ID', 'YOUR_GOOGLE_SHEET_ID'];
   for (var i = 0; i < keys.length; i++) {
     var raw = props.getProperty(keys[i]);
     if (!raw) continue;
     var p = String(raw).trim();
-    if (p && p !== 'YOUR_GOOGLE_SHEET_ID' && !/^YOUR_/i.test(p)) return p;
+    if (p && p !== 'YOUR_GOOGLE_SHEET_ID' && !/^YOUR_/i.test(p)) {
+      __webhookSheetIdMemo_ = p;
+      return __webhookSheetIdMemo_;
+    }
   }
   var c = String(WEBHOOK_CONFIG.SHEET_ID || '').trim();
-  if (c && c !== 'YOUR_GOOGLE_SHEET_ID' && !/^YOUR_/i.test(c)) return c;
-  return '';
+  if (c && c !== 'YOUR_GOOGLE_SHEET_ID' && !/^YOUR_/i.test(c)) {
+    __webhookSheetIdMemo_ = c;
+    return __webhookSheetIdMemo_;
+  }
+  __webhookSheetIdMemo_ = '';
+  return __webhookSheetIdMemo_;
 }
 
 /** Webhook 用スプレッドシートを開く（SHEET_ID 未設定・権限エラー時は分かりやすい例外） */
@@ -72,6 +87,47 @@ function openWebhookSpreadsheet_() {
   }
 }
 
+/** 同一 webhook イベント内で SpreadsheetApp.openById を繰り返さない */
+var __webhookSsCache_ = null;
+
+function getWebhookSpreadsheetCached_() {
+  if (__webhookSsCache_) return __webhookSsCache_;
+  __webhookSsCache_ = openWebhookSpreadsheet_();
+  return __webhookSsCache_;
+}
+
+/** 先頭シート（店舗マスタ）の getValues キャッシュ。座標更新後は無効化 */
+var __webhookMasterGridMemo_ = undefined;
+
+function invalidateMasterGridCache_() {
+  __webhookMasterGridMemo_ = undefined;
+}
+
+function getMasterSheetGridCached_() {
+  if (__webhookMasterGridMemo_ !== undefined) return __webhookMasterGridMemo_;
+  var ss = getWebhookSpreadsheetCached_();
+  var sheet = ss.getSheets()[0];
+  __webhookMasterGridMemo_ = sheet.getDataRange().getValues();
+  return __webhookMasterGridMemo_;
+}
+
+/** pending_posts の読み取りキャッシュ。シート更新後は無効化 */
+var __webhookPendingRows_ = undefined;
+
+function invalidatePendingRowsCache_() {
+  __webhookPendingRows_ = undefined;
+}
+
+function ensurePendingRowsLoaded_() {
+  if (__webhookPendingRows_ !== undefined) return;
+  var sheet = getPendingSheet(false);
+  if (!sheet) {
+    __webhookPendingRows_ = null;
+    return;
+  }
+  __webhookPendingRows_ = sheet.getDataRange().getValues();
+}
+
 /** シートの userId 列と LINE の userId を安全に比較する（前後空白のゆれ対策） */
 function normalizeWebhookUserIdForSheet_(userId) {
   return String(userId == null ? '' : userId).trim();
@@ -85,30 +141,48 @@ function sheetRowUserIdMatches_(cellVal, userId) {
  * LINE チャネルアクセストークン。
  * 優先: スクリプトプロパティ（LINE_CHANNEL_ACCESS_TOKEN / YOUR_LINE_CHANNEL_ACCESS_TOKEN）→ WEBHOOK_CONFIG
  */
+var __webhookLineTokenMemo_ = undefined;
+
 function getWebhookLineToken_() {
+  if (__webhookLineTokenMemo_ !== undefined) return __webhookLineTokenMemo_;
   var props = PropertiesService.getScriptProperties();
   var keys = ['LINE_CHANNEL_ACCESS_TOKEN', 'YOUR_LINE_CHANNEL_ACCESS_TOKEN'];
   for (var i = 0; i < keys.length; i++) {
     var raw = props.getProperty(keys[i]);
     if (!raw) continue;
     var p = String(raw).trim();
-    if (p && p !== 'YOUR_LINE_CHANNEL_ACCESS_TOKEN' && !/^YOUR_/i.test(p)) return p;
+    if (p && p !== 'YOUR_LINE_CHANNEL_ACCESS_TOKEN' && !/^YOUR_/i.test(p)) {
+      __webhookLineTokenMemo_ = p;
+      return __webhookLineTokenMemo_;
+    }
   }
   var c = String(WEBHOOK_CONFIG.LINE_CHANNEL_ACCESS_TOKEN || '').trim();
-  if (c && c !== 'YOUR_LINE_CHANNEL_ACCESS_TOKEN' && !/^YOUR_/i.test(c)) return c;
-  return '';
+  if (c && c !== 'YOUR_LINE_CHANNEL_ACCESS_TOKEN' && !/^YOUR_/i.test(c)) {
+    __webhookLineTokenMemo_ = c;
+    return __webhookLineTokenMemo_;
+  }
+  __webhookLineTokenMemo_ = '';
+  return __webhookLineTokenMemo_;
 }
 
 /** 管理者 LINE ユーザー ID（スクリプトプロパティ ADMIN_LINE_USER_ID） */
+var __webhookAdminIdMemo_ = undefined;
+
 function getAdminLineUserId_() {
+  if (__webhookAdminIdMemo_ !== undefined) return __webhookAdminIdMemo_;
   var p = PropertiesService.getScriptProperties().getProperty('ADMIN_LINE_USER_ID');
-  return p != null ? String(p).trim() : '';
+  __webhookAdminIdMemo_ = p != null ? String(p).trim() : '';
+  return __webhookAdminIdMemo_;
 }
 
 /** 店舗・運営系登録用パスワード（スクリプトプロパティ REGISTRATION_PASSWORD。空なら店舗登録はパスワード不要） */
+var __webhookRegPwMemo_ = undefined;
+
 function getRegistrationPassword_() {
+  if (__webhookRegPwMemo_ !== undefined) return __webhookRegPwMemo_;
   var p = PropertiesService.getScriptProperties().getProperty('REGISTRATION_PASSWORD');
-  return p != null ? String(p).trim() : '';
+  __webhookRegPwMemo_ = p != null ? String(p).trim() : '';
+  return __webhookRegPwMemo_;
 }
 
 // メインスポット列（browser CONFIG.COLS と一致する 0-based index）
@@ -222,6 +296,13 @@ function resetWebhookRequestCache_() {
   __webhookVenueSpotsMemo_ = [];
   __webhookUserMapRows_ = undefined;
   __webhookBotSessionRows_ = undefined;
+  __webhookSsCache_ = null;
+  __webhookSheetIdMemo_ = undefined;
+  __webhookLineTokenMemo_ = undefined;
+  __webhookRegPwMemo_ = undefined;
+  __webhookAdminIdMemo_ = undefined;
+  __webhookMasterGridMemo_ = undefined;
+  __webhookPendingRows_ = undefined;
 }
 
 /** doPost 内・イベント処理の最初で呼ぶ（計測開始とメモリキャッシュ初期化） */
@@ -853,7 +934,7 @@ function finalizePostWithCategory(userId, replyToken, user, category) {
 // ==================================================================
 
 function appendPostRow(row) {
-  const ss = openWebhookSpreadsheet_();
+  const ss = getWebhookSpreadsheetCached_();
   let sheet = ss.getSheetByName(POSTS_SHEET_NAME);
   if (!sheet) {
     ensurePostsSheet(ss);
@@ -1003,7 +1084,7 @@ function getAllUserMapRows() {
 }
 
 function getUserMapSheet(createIfMissing) {
-  const ss = openWebhookSpreadsheet_();
+  const ss = getWebhookSpreadsheetCached_();
   let sheet = ss.getSheetByName(USER_MAP_SHEET_NAME);
   if (!sheet && createIfMissing) {
     sheet = insertSheetAtEnd_(ss, USER_MAP_SHEET_NAME);
@@ -1069,7 +1150,7 @@ function deleteSession(userId) {
 }
 
 function getBotSessionSheet(createIfMissing) {
-  const ss = openWebhookSpreadsheet_();
+  const ss = getWebhookSpreadsheetCached_();
   let sheet = ss.getSheetByName(BOT_SESSIONS_SHEET_NAME);
   if (!sheet && createIfMissing) {
     sheet = insertSheetAtEnd_(ss, BOT_SESSIONS_SHEET_NAME);
@@ -1085,7 +1166,7 @@ function getBotSessionSheet(createIfMissing) {
 // ==================================================================
 
 function getVenueSpotsUncached_() {
-  const ss = openWebhookSpreadsheet_();
+  const ss = getWebhookSpreadsheetCached_();
   const sheet = ss.getSheetByName(VENUE_SPOTS_SHEET_NAME);
   if (!sheet) return [];
   const data = sheet.getDataRange().getValues();
@@ -1128,9 +1209,7 @@ function buildSpotListMessage() {
 // ==================================================================
 
 function getStoreCoordsFromMaster(storeId) {
-  const ss = openWebhookSpreadsheet_();
-  const sheet = ss.getSheets()[0];
-  const data = sheet.getDataRange().getValues();
+  const data = getMasterSheetGridCached_();
   const sidWant = normalizeStoreKeyForWebhook_(storeId);
 
   for (let i = 1; i < data.length; i++) {
@@ -1150,24 +1229,25 @@ function getStoreCoordsFromMaster(storeId) {
  * 既存行があれば lat/lng 列を更新、なければ最低限の列で行を追加する。
  */
 function saveStoreCoordsToMaster(storeId, lat, lng) {
-  const ss = openWebhookSpreadsheet_();
-  const sheet = ss.getSheets()[0];
-  const data = sheet.getDataRange().getValues();
-  const sidWant = normalizeStoreKeyForWebhook_(storeId);
+  var ss = getWebhookSpreadsheetCached_();
+  var sheet = ss.getSheets()[0];
+  var data = getMasterSheetGridCached_();
+  var sidWant = normalizeStoreKeyForWebhook_(storeId);
 
-  for (let i = 1; i < data.length; i++) {
-    const sid = data[i][MASTER_COL_STORE_ID];
+  for (var i = 1; i < data.length; i++) {
+    var sid = data[i][MASTER_COL_STORE_ID];
     if (sid != null && normalizeStoreKeyForWebhook_(sid) === sidWant) {
       sheet.getRange(i + 1, MASTER_COL_LAT + 1).setValue(lat);
       sheet.getRange(i + 1, MASTER_COL_LNG + 1).setValue(lng);
       webhookExecLog_('[saveStoreCoordsToMaster] updated row ' + (i + 1) + ' for ' + storeId);
+      invalidateMasterGridCache_();
       return;
     }
   }
 
   // 既存行なし → 新規追加（列数はマスタシートの現在の列数に合わせて空埋め）
-  const numCols = Math.max(sheet.getLastColumn(), MASTER_COL_STORE_ID + 1);
-  const newRow = new Array(numCols).fill('');
+  var numCols = Math.max(sheet.getLastColumn(), MASTER_COL_STORE_ID + 1);
+  var newRow = new Array(numCols).fill('');
   newRow[MASTER_COL_STORE_ID] = storeId;
   newRow[MASTER_COL_LAT] = lat;
   newRow[MASTER_COL_LNG] = lng;
@@ -1175,6 +1255,7 @@ function saveStoreCoordsToMaster(storeId, lat, lng) {
   if (numCols > MASTER_COL_NAME) newRow[MASTER_COL_NAME] = storeId;
   sheet.appendRow(newRow);
   webhookExecLog_('[saveStoreCoordsToMaster] appended new row for ' + storeId);
+  invalidateMasterGridCache_();
 }
 
 // ==================================================================
@@ -1196,16 +1277,18 @@ function savePending(userId, storeKey, message, imageUrl) {
       if (message !== undefined && message !== null) sheet.getRange(i + 1, 3).setValue(message);
       sheet.getRange(i + 1, 4).setValue(now);
       if (imageUrl !== undefined && imageUrl !== null) sheet.getRange(i + 1, 5).setValue(imageUrl);
+      invalidatePendingRowsCache_();
       return;
     }
   }
   sheet.appendRow([uid, storeKey, message || '', now, imageUrl || '']);
+  invalidatePendingRowsCache_();
 }
 
 function loadPending(userId) {
-  const sheet = getPendingSheet(false);
-  if (!sheet) return null;
-  const data = sheet.getDataRange().getValues();
+  ensurePendingRowsLoaded_();
+  if (__webhookPendingRows_ == null) return null;
+  const data = __webhookPendingRows_;
   const now = Date.now();
   for (let i = 1; i < data.length; i++) {
     if (!sheetRowUserIdMatches_(data[i][0], userId)) continue;
@@ -1242,6 +1325,7 @@ function loadPendingWithGrace(userId) {
       imageUrl: data[i][4] ? String(data[i][4]) : ''
     };
     sheet.deleteRow(i + 1);
+    invalidatePendingRowsCache_();
     return result;
   }
   return null;
@@ -1254,6 +1338,7 @@ function deletePending(userId) {
   for (let i = data.length - 1; i >= 1; i--) {
     if (sheetRowUserIdMatches_(data[i][0], userId)) {
       sheet.deleteRow(i + 1);
+      invalidatePendingRowsCache_();
       return;
     }
   }
@@ -1265,6 +1350,7 @@ function deletePending(userId) {
  * （画像受信時に自分の pending を先に利用させるため）。
  */
 function flushExpiredPending(excludeUserId) {
+  invalidatePendingRowsCache_();
   const sheet = getPendingSheet(false);
   if (!sheet) return;
   const data = sheet.getDataRange().getValues();
@@ -1330,7 +1416,7 @@ function flushExpiredPending(excludeUserId) {
 }
 
 function getPendingSheet(createIfMissing) {
-  const ss = openWebhookSpreadsheet_();
+  const ss = getWebhookSpreadsheetCached_();
   let sheet = ss.getSheetByName(PENDING_SHEET_NAME);
   if (!sheet && createIfMissing) {
     sheet = insertSheetAtEnd_(ss, PENDING_SHEET_NAME);
@@ -1829,14 +1915,16 @@ function setupSheets() {
     const s = insertSheetAtEnd_(ss, EVENT_SHEET);
     s.appendRow([
       'event_id', 'title', 'start_at', 'lat', 'lng',
-      'emoji', 'duration_minutes', 'lead_minutes', 'hidden', 'title_en'
+      'emoji', 'duration_minutes', 'lead_minutes', 'hidden', 'title_en',
+      'image_url'
     ]);
     s.appendRow([
       'ev_001', '大道芸', '2026-07-19 12:00:00',
-      34.6801, 138.9430, '🎪', 60, 30, '', 'Street Performance'
+      34.6801, 138.9430, '🎪', 60, 30, '', 'Street Performance',
+      ''
     ]);
     s.setFrozenRows(1);
-    s.getRange('A1:J1').setBackground('#E65100').setFontColor('#FFFFFF').setFontWeight('bold');
+    s.getRange('A1:K1').setBackground('#E65100').setFontColor('#FFFFFF').setFontWeight('bold');
     console.log('✅ event_schedule');
   }
 
@@ -1872,7 +1960,7 @@ function runWebhookHealthCheck() {
     return;
   }
   try {
-    var ss = openWebhookSpreadsheet_();
+    var ss = getWebhookSpreadsheetCached_();
     webhookExecLog_('[health] スプレッドシートを開けました: ' + ss.getName());
     var bs = getBotSessionSheet(true);
     webhookExecLog_('[health] bot_sessions 最終行: ' + bs.getLastRow());
