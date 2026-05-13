@@ -18,7 +18,7 @@
  * 【ロールと投稿】
  *   店舗: 固定座標（スプレッドシート先頭シートの store_id と座標）。
  *   運営: venue_spots から番号選択 → 選択座標へ投稿。
- *   協力者: LINE 位置メッセージ後に写真・短文 → GPS 投稿。
+ *   協力者: LINE 位置メッセージ後に短文テキスト → 写真 → GPS 投稿。
  *
  * 【スプレッドシートでのモデレーション】
  *   posts シートの isVisible を FALSE にするとマップから非表示。
@@ -214,7 +214,7 @@ const STEP_IDLE = 'idle';
 const STEP_AWAITING_CONTENT = 'awaiting_content';
 const STEP_AWAITING_SPOT = 'awaiting_spot';
 const STEP_AWAITING_CATEGORY = 'awaiting_category';
-/** 未登録向け: 「店」のあと store_id だけ送らせる */
+/** 未登録向け: 「店」のみ送られたあと店舗名を1通で受け取る（ワンショットは「店」+空白+店舗名） */
 const STEP_AWAITING_REGISTER_STORE_ID = 'awaiting_register_store_id';
 const STEP_AWAITING_STORE_LOCATION   = 'awaiting_store_location';
 /** 「登録 〇〇」のあと、スクリプトプロパティの登録パスワードを別メッセージで受け取る */
@@ -237,6 +237,67 @@ function formatPostTtlHint_(ms) {
 const SOURCE_FIXED = 'fixed';
 const SOURCE_SELECTED = 'selected';
 const SOURCE_GPS = 'gps';
+
+/** 「店」または「店舗」のあとに半角／全角スペース＋店舗名が続く1通（登録用） */
+const STORE_REG_ONE_SHOT_SHOP_RE_ = /^店[\s\u3000]+\S/;
+const STORE_REG_ONE_SHOT_TENPO_RE_ = /^店舗[\s\u3000]+\S/;
+const STORE_REG_PREFIX_TENPO_RE_ = /^店舗[\s\u3000]+/;
+const STORE_REG_PREFIX_SHOP_RE_ = /^店[\s\u3000]+/;
+
+function isStoreRegistrationOneShot_(text) {
+  return STORE_REG_ONE_SHOT_SHOP_RE_.test(text) || STORE_REG_ONE_SHOT_TENPO_RE_.test(text);
+}
+
+function stripStoreRegistrationPrefix_(text) {
+  return String(text).trim().replace(STORE_REG_PREFIX_TENPO_RE_, '').replace(STORE_REG_PREFIX_SHOP_RE_, '');
+}
+
+/** 「登録」とだけ送られたときのトリム（前後の空白・全角スペース・BOM） */
+function normalizeRegisterMenuTrigger_(text) {
+  return String(text).replace(/^[\s\u3000\uFEFF]+|[\s\u3000\uFEFF]+$/g, '');
+}
+
+/** LINE 返信文言（登録フローで同一文面を共有） */
+const MSG_LINE_STORE_SPACE_BOTH_OK_ = 'スペース（半角・全角どちらでも）';
+const MSG_LINE_REGISTRATION_PASSWORD_NEXT_ =
+  '🔒 続けて登録パスワードをそのまま1通だけ送ってください。\n（やめるときは「登録解除」）';
+const MSG_LINE_REGISTERED_OPERATOR_OK_ =
+  '✅ 運営として登録しました。\n投稿の順番の例: 短文テキスト→📸写真（どちらか一方でも可）→スポット番号→カテゴリです。';
+const MSG_LINE_REGISTERED_CONTRIBUTOR_OK_ =
+  '✅ 協力者として登録しました。\n投稿の順番: 📍位置情報 → 短文テキスト → 📸写真 → カテゴリ です。';
+
+const MSG_LINE_STORE_AWAITING_NAME_AFTER_SHOP_ONLY_ =
+  '「店」と' +
+  MSG_LINE_STORE_SPACE_BOTH_OK_ +
+  'を挟んで店舗名を続け、1通で送ってください。\n例：店　風まち';
+
+const MSG_LINE_REGISTER_MENU_BODY_ =
+  '登録の種類👇\n' +
+  '・運営／協力　→　下のボタンをタップ\n' +
+  '・店舗　→　ボタンは使わず、このあと続けて「店」と' +
+  MSG_LINE_STORE_SPACE_BOTH_OK_ +
+  'と店舗名を1通で送ってください\n' +
+  '　例：店　風まち（店舗一覧と同じ名前・表記）';
+
+const MSG_LINE_STORE_REGISTRATION_PW_MISMATCH_ =
+  '🔒 登録パスワードが違います。\n「店」と' +
+  MSG_LINE_STORE_SPACE_BOTH_OK_ +
+  'と店舗名を1通で送ったうえで、別のメッセージでパスワードだけを送ってください。';
+
+/** buildHelpMessage の登録欄（「登録」と送る〜の続き） */
+const MSG_LINE_HELP_REGISTER_STORE_HINT_ =
+  '・運営／協力→ボタン　・店舗→「店」+' +
+  MSG_LINE_STORE_SPACE_BOTH_OK_ +
+  '+店舗名を1通（例：店　風まち）\n\n';
+
+function buildMsgLineRegisteredStoreOk_(storeId) {
+  return (
+    `✅ 店舗として登録しました（${storeId}）\n\n` +
+    `次に📍お店の位置情報を送ってください。\n` +
+    `LINEの入力欄「＋」→「位置情報」から現在地またはお店の場所を送ると座標が自動登録されます。\n\n` +
+    `後で送り直す場合も同じ手順でOKです。`
+  );
+}
 
 /** 店舗 store_id の比較用（日本語可・連続空白を1つに） */
 function normalizeStoreKeyForWebhook_(s) {
@@ -415,7 +476,7 @@ function doPost(e) {
             replyToken,
             '⚠️ このメッセージ形式には未対応です（type: ' +
               String(msg.type || '?') +
-              '）。\n協力者の投稿では「＋」→「位置情報」から📍付きで送ってください。'
+              '）。\n協力者の投稿の流れ: 「＋」→📍位置情報 → 短文テキスト → 📸写真 → カテゴリです。'
           );
         }
       } catch (innerErr) {
@@ -458,6 +519,17 @@ function doGet() {
 // ルーティング
 // ==================================================================
 
+/** 店舗ロール登録: 「店」単体→続けの1通で「店」+空白+店舗名を促す */
+function beginStoreRegistrationFlow_(userId, replyToken) {
+  const uEarly = getUserRecord(userId);
+  if (uEarly && uEarly.isActive !== false) {
+    replyText(replyToken, 'すでに登録済みです。「登録確認」でロールを確認できます。');
+    return;
+  }
+  setSession(userId, STEP_AWAITING_REGISTER_STORE_ID, {});
+  replyText(replyToken, MSG_LINE_STORE_AWAITING_NAME_AFTER_SHOP_ONLY_);
+}
+
 function handleTextIncoming(userId, replyToken, text) {
   if (!text) return;
 
@@ -469,20 +541,13 @@ function handleTextIncoming(userId, replyToken, text) {
     replyText(replyToken, buildHelpMessage(userId));
     return;
   }
-  if (/^店\s+\S/.test(text) || /^店舗\s+\S/.test(text)) {
-    const rest = text.trim().replace(/^店舗\s+/, '').replace(/^店\s+/, '');
+  if (isStoreRegistrationOneShot_(text)) {
+    const rest = stripStoreRegistrationPrefix_(text);
     handleRegisterCommand(userId, replyToken, '登録 ' + rest);
     return;
   }
   if (/^(店|店舗)$/.test(text)) {
-    const uEarly = getUserRecord(userId);
-    if (uEarly && uEarly.isActive !== false) {
-      replyText(replyToken, 'すでに登録済みです。「登録確認」でロールを確認できます。');
-      return;
-    }
-    setSession(userId, STEP_AWAITING_REGISTER_STORE_ID, {});
-    replyText(replyToken,
-      '店舗の store_id（スプレッドシートの店舗マスタと同じ表記）を、次の1通だけ送ってください。\n例：風まち（または store_001）');
+    beginStoreRegistrationFlow_(userId, replyToken);
     return;
   }
   // 「登録〇〇」より先に完全一致だけ処理する（/^登録/ に「登録確認」「登録解除」が吸われると登録フローに入ってしまう）
@@ -502,6 +567,12 @@ function handleTextIncoming(userId, replyToken, text) {
   }
   if (sessRegFlow.step === STEP_AWAITING_REGISTRATION_PASSWORD) {
     handleRegistrationPasswordReply(userId, replyToken, text);
+    return;
+  }
+
+  const registerMenuNorm = normalizeRegisterMenuTrigger_(text);
+  if (registerMenuNorm === '登録') {
+    replyWithRegisterQuickReply(replyToken);
     return;
   }
 
@@ -604,7 +675,7 @@ function handleImageIncoming(userId, replyToken, messageId) {
     if (sess.payload.lat == null || sess.payload.lng == null) {
       replyText(
         replyToken,
-        '先に📍位置情報メッセージを送ってください。\n「位置を受け取りました」のあとに写真を送ってください。'
+        '先に📍位置情報メッセージを送ってください。\n「位置を受け取りました」のあとは【順番: 短文テキスト→📸写真→カテゴリ】です。'
       );
       return;
     }
@@ -630,12 +701,12 @@ function handleImageIncoming(userId, replyToken, messageId) {
       // すでに画像pending あり → 上書き保存して続行
       savePending(userId, user.fixedStoreId || '', '', imageUrl);
       replyText(replyToken,
-        `📸 写真を更新しました。テキストを送るとセットで反映されます（${PENDING_EXPIRE_MS / 60000}分以内）\nテキスト不要ならそのまま待つとカテゴリ選択に進みます。`);
+        `📸 写真を更新しました。（順番: テキスト→写真）テキストを送るとセットで反映されます（${PENDING_EXPIRE_MS / 60000}分以内）\nテキスト不要ならそのまま待つとカテゴリ選択に進みます。`);
     } else {
       // 画像が先に届いた → imageUrl を pending に保存してテキストを待つ
       savePending(userId, user.fixedStoreId || '', '', imageUrl);
       replyText(replyToken,
-        `📸 写真を受け付けました。テキストを送るとセットで反映されます（${PENDING_EXPIRE_MS / 60000}分以内）\nテキスト不要ならそのまま待つとカテゴリ選択に進みます。`);
+        `📸 写真を受け付けました。（順番: テキスト→写真）テキストを送るとセットで反映されます（${PENDING_EXPIRE_MS / 60000}分以内）\nテキスト不要ならそのまま待つとカテゴリ選択に進みます。`);
     }
   } else {
     mergeImageWithPendingThenAskSpot(userId, replyToken, user, imageUrl);
@@ -671,7 +742,8 @@ function handleLocationIncoming(userId, replyToken, lat, lng) {
       replyText(replyToken,
         `📍 位置情報を登録しました（${storeId}）\n` +
         `これでライブ投稿が可能になりました🎉\n\n` +
-        `📷写真・短文を送ってカテゴリを選ぶと地図に表示されます。`);
+        `投稿の順番: 短文テキスト → 📸写真 → カテゴリ（ボタン）です。\n` +
+        `お店から離れた場所から投稿するときは、先に📍位置情報を送ってから、同じ順番でお願いします。`);
       return;
     }
 
@@ -679,6 +751,8 @@ function handleLocationIncoming(userId, replyToken, lat, lng) {
       replyText(replyToken, '位置情報投稿は「店舗」または「協力者」登録のアカウントで使えます。');
       return;
     }
+    // 位置付き投稿は「テキスト→写真」の順に統一するため、古い pending が残らないようクリアする
+    deletePending(userId);
     setSession(userId, STEP_AWAITING_CONTENT, {
       text: '', imageUrl: '', lat: latNum, lng: lngNum, spotId: '', spotName: ''
     });
@@ -697,7 +771,8 @@ function handleLocationIncoming(userId, replyToken, lat, lng) {
         : '';
     replyText(
       replyToken,
-      '📍位置を受け取りました。\n続けて📸写真・短文（50字まで）を、どちらか先でも送ってください。' + tail
+      '📍位置を受け取りました。\n【順番】①短文テキスト（50字まで）→②📸写真 →③カテゴリ（あとでボタン）\n写真だけ先に送ると正しく処理できません。' +
+        tail
     );
   } catch (err) {
     var detail = String(err.message || err);
@@ -745,7 +820,7 @@ function handleStoreContentText(userId, replyToken, user, text) {
   // テキストを pending に保存して画像を待つ
   savePending(userId, user.fixedStoreId || '', truncated);
   replyText(replyToken,
-    `📝 受け付けました「${truncated}」\n続けて写真を送るとセットで反映されます📸（${PENDING_EXPIRE_MS / 60000}分以内）\n写真不要ならそのまま待つとカテゴリ選択に進みます。`
+    `📝 受け付けました「${truncated}」\n【順番: テキスト→写真】続けて📸写真を送ってください（${PENDING_EXPIRE_MS / 60000}分以内）\n写真不要ならそのまま待つとカテゴリ選択に進みます。`
   );
 }
 
@@ -794,7 +869,7 @@ function handleOperatorContentText(userId, replyToken, user, text) {
   const truncated = text.substring(0, MAX_MESSAGE_LENGTH);
   savePending(userId, '_op_', truncated);
   replyText(replyToken,
-    `📝 受け付けました「${truncated}」\n続けて写真📸（${PENDING_EXPIRE_MS / 60000}分以内）\n写真のみでもOKです。`);
+    `📝 受け付けました「${truncated}」\n【推奨の順: テキスト→写真】続けて📸写真（${PENDING_EXPIRE_MS / 60000}分以内）\n写真のみでも進められます。`);
 }
 
 // ==================================================================
@@ -807,7 +882,8 @@ function handleContributorContentText(userId, replyToken, user, text) {
     replyText(
       replyToken,
       '協力者の投稿は📍位置が先です。\n' +
-        '「＋」→「位置情報」で送る → 「📍位置を受け取りました」のあとに短文・📸\n' +
+        '【順番】📍位置情報 → 短文テキスト → 📸写真 → カテゴリ\n' +
+        '「📍位置を受け取りました」のあとは、まず短文、そのあと写真を送ってください。\n' +
         '※位置と同時・直後のテキストは届かないことがあります。返信のあとに送ってください。'
     );
     return;
@@ -816,13 +892,28 @@ function handleContributorContentText(userId, replyToken, user, text) {
     replyText(replyToken, 'カテゴリをボタンから選んでください👇');
     return;
   }
-  const truncated = text.substring(0, MAX_MESSAGE_LENGTH);
+  const truncated = text.substring(0, MAX_MESSAGE_LENGTH).trim();
+  if (!truncated) {
+    replyText(
+      replyToken,
+      '位置情報付きの投稿は【順番: 短文テキスト→📸写真】です。\n先に内容のある短文（1文字以上）を送ってから、写真を送ってください。'
+    );
+    return;
+  }
   savePending(userId, '_liv_', truncated);
   replyText(replyToken,
-    `📝 受け付けました「${truncated}」\n続けて写真を📸（${PENDING_EXPIRE_MS / 60000}分以内）`);
+    `📝 受け付けました「${truncated}」\n【順番: テキスト→写真】続けて📸写真を送ってください（${PENDING_EXPIRE_MS / 60000}分以内）`);
 }
 
 function handleContributorImage(userId, replyToken, user, messageId) {
+  const pendingTxt = loadPending(userId);
+  if (!pendingTxt || !String(pendingTxt.message || '').trim()) {
+    replyText(
+      replyToken,
+      '位置情報付きの投稿は【順番: 短文テキスト→📸写真】です。\n短文を先に送ってから写真を送ってください。（写真だけ先に送ると正しく処理できません）'
+    );
+    return;
+  }
   let imageUrl;
   try {
     imageUrl = fetchLineImageToDrive(messageId);
@@ -885,7 +976,7 @@ function finalizePostWithCategory(userId, replyToken, user, category) {
       sourceType = SOURCE_FIXED;
       const c = getStoreCoordsFromMaster(storeId);
       if (!c) {
-        replyText(replyToken, `店舗座標が見つかりません（store_id: ${storeId}）。管理者に確認してください。`);
+        replyText(replyToken, `店舗座標が見つかりません（店舗名: ${storeId}）。管理者に確認してください。`);
         deleteSession(userId);
         return;
       }
@@ -1384,6 +1475,8 @@ function flushExpiredPending(excludeUserId) {
     if (user.role === ROLE_STORE) {
       const sess = getSession(userId);
       if (sess.payload.lat != null && sess.payload.lng != null) {
+        // GPS 付き店舗投稿もテキスト→写真の順。写真のみの期限切れはカテゴリへ進めない
+        if (!message.trim() && imageUrl) continue;
         setSession(userId, STEP_AWAITING_CATEGORY, Object.assign({}, sess.payload, {
           text: message, imageUrl
         }));
@@ -1407,6 +1500,7 @@ function flushExpiredPending(excludeUserId) {
     } else if (user.role === ROLE_CONTRIBUTOR) {
       const sess = getSession(userId);
       if (sess.payload.lat == null || sess.payload.lng == null) continue;
+      if (!message.trim() && imageUrl) continue;
       setSession(userId, STEP_AWAITING_CATEGORY, Object.assign({}, sess.payload, {
         text: message, imageUrl
       }));
@@ -1489,6 +1583,21 @@ function buildCategoryQuickReply() {
   return { items };
 }
 
+/** 「登録」時: 運営／協力は Quick Reply。店舗は MSG_LINE_REGISTER_MENU_BODY_ どおり1通で送らせる */
+function buildRegisterQuickReply() {
+  return {
+    items: [
+      { type: 'action', action: { type: 'message', label: '運営', text: '登録 運営' } },
+      { type: 'action', action: { type: 'message', label: '協力', text: '登録 協力' } }
+    ]
+  };
+}
+
+function replyWithRegisterQuickReply(replyToken) {
+  const qr = buildRegisterQuickReply();
+  replyMessages(replyToken, [{ type: 'text', text: MSG_LINE_REGISTER_MENU_BODY_, quickReply: qr }]);
+}
+
 function replyMessages(replyToken, messages) {
   if (!replyToken) {
     webhookExecErr_('[replyMessages] missing replyToken');
@@ -1538,12 +1647,7 @@ function handleRegisterCommand(userId, replyToken, text) {
   const specialPw = parts.slice(2).join(' ') || '';
 
   if (!sub) {
-    replyText(replyToken,
-      '⚠️ 使い方\n' +
-        '店舗: 「店 風まち」または「登録 風まち」（パスワード設定時は続けてパスワードのみを別送信）\n' +
-        '運営: 「登録 運営」→ パスワード（設定時は別送信）\n' +
-        '協力: 「登録 協力」→ パスワード（設定時は別送信）\n' +
-        '※管理者アカウントはパスワード不要／「店」→ store_id だけの流れも可');
+    replyWithRegisterQuickReply(replyToken);
     return;
   }
 
@@ -1553,15 +1657,12 @@ function handleRegisterCommand(userId, replyToken, text) {
     if (canRegisterSpecialRoles(userId, specialPw)) {
       saveUserRecord(userId, ROLE_OPERATOR, '');
       deleteSession(userId);
-      replyText(replyToken, '✅ 運営として登録しました。写真または短文→スポット番号→カテゴリの順で投稿できます。');
+      replyText(replyToken, MSG_LINE_REGISTERED_OPERATOR_OK_);
       return;
     }
     if (regPwGlobal && !specialPw) {
       setSession(userId, STEP_AWAITING_REGISTRATION_PASSWORD, { regKind: 'operator' });
-      replyText(
-        replyToken,
-        '🔒 続けて登録パスワードをそのまま1通だけ送ってください。\n（やめるときは「登録解除」）'
-      );
+      replyText(replyToken, MSG_LINE_REGISTRATION_PASSWORD_NEXT_);
       return;
     }
     replyText(replyToken, '🔒 運営登録には管理者または登録パスワードが必要です。');
@@ -1572,15 +1673,12 @@ function handleRegisterCommand(userId, replyToken, text) {
     if (canRegisterSpecialRoles(userId, specialPw)) {
       saveUserRecord(userId, ROLE_CONTRIBUTOR, '');
       setSession(userId, STEP_IDLE, { text: '', imageUrl: '', lat: null, lng: null, spotId: '', spotName: '' });
-      replyText(replyToken, '✅ 協力者として登録しました。\n投稿は 📍位置情報 → 写真・短文 → カテゴリ の流れです。');
+      replyText(replyToken, MSG_LINE_REGISTERED_CONTRIBUTOR_OK_);
       return;
     }
     if (regPwGlobal && !specialPw) {
       setSession(userId, STEP_AWAITING_REGISTRATION_PASSWORD, { regKind: 'contributor' });
-      replyText(
-        replyToken,
-        '🔒 続けて登録パスワードをそのまま1通だけ送ってください。\n（やめるときは「登録解除」）'
-      );
+      replyText(replyToken, MSG_LINE_REGISTRATION_PASSWORD_NEXT_);
       return;
     }
     replyText(replyToken, '🔒 協力者登録には管理者または登録パスワードが必要です。');
@@ -1589,7 +1687,7 @@ function handleRegisterCommand(userId, replyToken, text) {
 
   const storeIdRaw = sub.replace(/\s+/g, ' ').trim();
   if (!storeIdRaw || storeIdRaw.length > 64) {
-    replyText(replyToken, '⚠️ 店舗IDが空か長すぎます（64文字まで）。\nスプレッドシートの店舗マスタの store_id と同じ表記にしてください。');
+    replyText(replyToken, '⚠️ 店舗名が空か長すぎます（64文字まで）。店舗一覧（マスタ）と同じ名前・表記にしてください。');
     return;
   }
   if (/[\r\n\x00]/.test(storeIdRaw)) {
@@ -1608,19 +1706,11 @@ function handleRegisterCommand(userId, replyToken, text) {
   if (regPwGlobal) {
     if (!storePw) {
       setSession(userId, STEP_AWAITING_REGISTRATION_PASSWORD, { regKind: 'store', storeId: storeId });
-      replyText(
-        replyToken,
-        '🔒 続けて登録パスワードをそのまま1通だけ送ってください。\n（やめるときは「登録解除」）'
-      );
+      replyText(replyToken, MSG_LINE_REGISTRATION_PASSWORD_NEXT_);
       return;
     }
     if (storePw !== regPwGlobal) {
-      replyText(
-        replyToken,
-        '🔒 登録パスワードが違います。\n「登録 ' +
-          storeId +
-          '」のあと、別のメッセージでパスワードだけを送ってください。'
-      );
+      replyText(replyToken, MSG_LINE_STORE_REGISTRATION_PW_MISMATCH_);
       return;
     }
   }
@@ -1628,11 +1718,7 @@ function handleRegisterCommand(userId, replyToken, text) {
   saveUserRecord(userId, ROLE_STORE, storeId);
   setSession(userId, STEP_AWAITING_STORE_LOCATION, { storeId });
 
-  replyText(replyToken,
-    `✅ 店舗として登録しました（${storeId}）\n\n` +
-      `次に📍お店の位置情報を送ってください。\n` +
-      `LINEの入力欄「＋」→「位置情報」から現在地またはお店の場所を送ると座標が自動登録されます。\n\n` +
-      `後で送り直す場合も同じ手順でOKです。`);
+  replyText(replyToken, buildMsgLineRegisteredStoreOk_(storeId));
 }
 
 /**
@@ -1653,20 +1739,20 @@ function handleRegistrationPasswordReply(userId, replyToken, passwordText) {
   if (kind === 'operator') {
     saveUserRecord(userId, ROLE_OPERATOR, '');
     deleteSession(userId);
-    replyText(replyToken, '✅ 運営として登録しました。写真または短文→スポット番号→カテゴリの順で投稿できます。');
+    replyText(replyToken, MSG_LINE_REGISTERED_OPERATOR_OK_);
     return;
   }
   if (kind === 'contributor') {
     saveUserRecord(userId, ROLE_CONTRIBUTOR, '');
     setSession(userId, STEP_IDLE, { text: '', imageUrl: '', lat: null, lng: null, spotId: '', spotName: '' });
-    replyText(replyToken, '✅ 協力者として登録しました。\n投稿は 📍位置情報 → 写真・短文 → カテゴリ の流れです。');
+    replyText(replyToken, MSG_LINE_REGISTERED_CONTRIBUTOR_OK_);
     return;
   }
   if (kind === 'store') {
     const storeId = sess.payload.storeId != null ? String(sess.payload.storeId).trim() : '';
     if (!storeId) {
       deleteSession(userId);
-      replyText(replyToken, '⚠️ 登録セッションが無効です。「登録 店舗ID」からやり直してください。');
+      replyText(replyToken, '⚠️ 登録セッションが無効です。「登録」からやり直してください。');
       return;
     }
     const existing = lookupUserIdByFixedStoreId(storeId);
@@ -1677,11 +1763,7 @@ function handleRegistrationPasswordReply(userId, replyToken, passwordText) {
     }
     saveUserRecord(userId, ROLE_STORE, storeId);
     setSession(userId, STEP_AWAITING_STORE_LOCATION, { storeId });
-    replyText(replyToken,
-      `✅ 店舗として登録しました（${storeId}）\n\n` +
-        `次に📍お店の位置情報を送ってください。\n` +
-        `LINEの入力欄「＋」→「位置情報」から現在地またはお店の場所を送ると座標が自動登録されます。\n\n` +
-        `後で送り直す場合も同じ手順でOKです。`);
+    replyText(replyToken, buildMsgLineRegisteredStoreOk_(storeId));
     return;
   }
 
@@ -1696,9 +1778,9 @@ function handleCheckCommand(userId, replyToken) {
     return;
   }
   let detail = '';
-  if (u.role === ROLE_STORE) detail = `店舗ID: ${u.fixedStoreId}`;
+  if (u.role === ROLE_STORE) detail = `店舗名: ${u.fixedStoreId}`;
   else if (u.role === ROLE_OPERATOR) detail = '運営（スポット選択）';
-  else detail = '協力者（位置＋GPS投稿）';
+  else detail = '協力者（📍位置→短文テキスト→📸写真→カテゴリ）';
 
   replyText(replyToken,
     `📋 登録状況\nロール:${u.role}\n${detail}\n有効:${u.isActive !== false}`);
@@ -1789,10 +1871,8 @@ function buildUnknownUserMessage(userId) {
 function buildHelpMessage(userId) {
   const head =
     '📖 コマンド\nマイID / ヘルプ / 登録確認 / 登録解除\n\n' +
-    '📍 登録\n' +
-    '・店舗: 「店 風まち」/「登録　風まち」→（パスワード設定時のみ）続けてパスワードだけを送信\n' +
-    '・運営: 「登録 運営」→（パスワード設定時のみ）続けてパスワードだけを送信（管理者は不要）\n' +
-    '・協力: 「登録 協力」→（同上）\n\n';
+    '📍 登録:「登録」と送る\n' +
+    MSG_LINE_HELP_REGISTER_STORE_HINT_;
 
   let flow = '';
   const u = getUserRecord(userId);
@@ -1802,12 +1882,14 @@ function buildHelpMessage(userId) {
       'マップモデレーション: posts の isVisible を編集できます。';
   } else if (u.role === ROLE_STORE) {
     flow =
-      '📝 店舗投稿: 短文や写真→カテゴリ（ボタン）\n座標はスプレッドシート側のお店情報を使用します。\n' +
-      '📍移動中の投稿: 先に位置情報→写真・短文→カテゴリ（現在地がマップに出ます）';
+      '📝 店舗投稿の順番: 短文テキスト→📸写真→カテゴリ（ボタン）\n座標はスプレッドシート側のお店情報を使用します。\n' +
+      '📍移動中の投稿の順番: 📍位置情報→短文テキスト→📸写真→カテゴリ（現在地がマップに出ます）';
   } else if (u.role === ROLE_OPERATOR) {
-    flow = '📝 運営投稿: 短文や写真→番号でスポット→カテゴリ\n⚠️ venue_spots にスポットを登録しておいてください';
+    flow =
+      '📝 運営投稿の順番: 短文テキストまたは📸写真→番号でスポット→カテゴリ\n⚠️ venue_spots にスポットを登録しておいてください';
   } else {
-    flow = '📝 協力者投稿: 📍位置→短文や写真→カテゴリ';
+    flow =
+      '📝 協力者投稿の順番: 📍位置情報→短文テキスト→📸写真→カテゴリ（テキストを先に、続けて写真）';
   }
   return head + flow + `\n\n文字数:${MAX_MESSAGE_LENGTH}文字まで`;
 }
