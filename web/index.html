@@ -2158,7 +2158,7 @@ const EventScheduleModule = {
      * 列 (0-index):
      *  0: event_id  1: title  2: start_at  3: lat  4: lng
      *  5: emoji     6: duration_minutes  7: lead_minutes
-     *  8: hidden    9: title_en  10: image_url（任意・ポップアップに1枚）
+     *  8: hidden（TRUE/1/"TRUE" のとき除外・空欄は掲載）  9: title_en  10: image_url（任意・ポップアップに1枚）
      */
     _parse(json) {
         if (!json?.table?.rows) return [];
@@ -2166,8 +2166,9 @@ const EventScheduleModule = {
         json.table.rows.forEach((row, i) => {
             if (!row?.c) return;
 
-            // hidden 列が false/"FALSE" なら除外
-            if (row.c[8]?.v === false || String(row.c[8]?.v).toUpperCase() === 'FALSE') return;
+            // hidden 列: TRUE / "TRUE" / 1 のときだけ除外（チェックボックス未チェック=false は「表示」扱い）
+            const hid = row.c[8]?.v;
+            if (hid === true || hid === 1 || String(hid).trim().toUpperCase() === 'TRUE') return;
 
             const title   = row.c[1]?.v != null ? String(row.c[1].v).trim() : '';
             if (!title) return;
