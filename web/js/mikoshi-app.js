@@ -1,5 +1,5 @@
 import { loadCheckpoints } from './services/checkpointService.js';
-import { RouteService, mergeRouteLineString } from './services/routeService.js';
+import { RouteService } from './services/routeService.js';
 import { MapService } from './services/mapService.js';
 import { AnimationService } from './services/animationService.js';
 
@@ -81,17 +81,6 @@ async function main() {
   const merged = routeService.getMergedRoute();
   const mergedFc = { type: 'FeatureCollection', features: [merged] };
 
-  let altMerged = null;
-  let altMergedFc = null;
-  const segmentsOfficialFc = featureCollectionBySegmentId(segmentsFc, 'seg_01');
-  if (segmentsOfficialFc.features.length) {
-    const sortedOfficial = [...segmentsOfficialFc.features].sort(
-      (a, b) => (a.properties?.seq ?? 0) - (b.properties?.seq ?? 0)
-    );
-    altMerged = mergeRouteLineString(sortedOfficial);
-    altMergedFc = { type: 'FeatureCollection', features: [altMerged] };
-  }
-
   const checkpointsDisplayFc = filterCheckpointsForSegments(cpFc, segmentsDemoFc.features);
 
   const initial = routeService.getState();
@@ -104,12 +93,11 @@ async function main() {
 
   await mapService.init({
     mergedRouteFc: mergedFc,
-    altMergedRouteFc: altMergedFc || undefined,
     checkpointsFc: checkpointsDisplayFc,
     initialPoint: [initial.lng, initial.lat]
   });
 
-  mapService.fitRouteBounds(merged, altMerged || undefined);
+  mapService.fitRouteBounds(merged);
 
   let iconSize = 0.675;
   const anim = new AnimationService({
@@ -124,7 +112,7 @@ async function main() {
   const lblPhase = document.getElementById('lbl-phase');
 
   if (btnFit) {
-    btnFit.addEventListener('click', () => mapService.fitRouteBounds(merged, altMerged || undefined));
+    btnFit.addEventListener('click', () => mapService.fitRouteBounds(merged));
   }
   const clampIcon = (v) => Math.min(0.85, Math.max(0.25, v));
   if (btnMinus) {

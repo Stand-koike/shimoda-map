@@ -154,6 +154,8 @@ let routeService = null;
 let rafId = null;
 /** @type {import('mapbox-gl').Marker | null} */
 let mikoshiMarker = null;
+/** 水色ベースラインに表示中の区間 index（全区間マージはしない＝複線に見えないようにする） */
+let lastMikoshiRouteBgSegmentIndex = NaN;
 
 const LAYER_IDS = ['mikoshi-layer-route', 'mikoshi-layer-progress', 'mikoshi-layer-checkpoints'];
 
@@ -256,6 +258,26 @@ function setProgressFeat(feature) {
   map.getSource(SOURCE_PROGRESS).setData(fc);
 }
 
+/**
+ * 予定ライン（水色）は「現在の区間」1本のみ。seg_01 と seg_02 の形状を同時に出さない。
+ * @param {object} st routeService.getState() の戻り
+ */
+function syncRouteBackgroundToActiveSegment(st) {
+  if (!map?.getSource(SOURCE_ROUTE)) return;
+  const idx = st.segmentIndex;
+  if (idx === lastMikoshiRouteBgSegmentIndex) return;
+  lastMikoshiRouteBgSegmentIndex = idx;
+  const g = st.line?.geometry;
+  if (g?.type === 'LineString' && g.coordinates?.length >= 2) {
+    map.getSource(SOURCE_ROUTE).setData({
+      type: 'FeatureCollection',
+      features: [{ type: 'Feature', properties: {}, geometry: g }]
+    });
+  } else {
+    map.getSource(SOURCE_ROUTE).setData({ type: 'FeatureCollection', features: [] });
+  }
+}
+
 function tick() {
   rafId = requestAnimationFrame(tick);
   if (!map || !routeService) return;
@@ -265,6 +287,7 @@ function tick() {
     return;
   }
   const st = routeService.getState(now);
+  syncRouteBackgroundToActiveSegment(st);
   const bearing = typeof st.bearing === 'number' ? st.bearing : 0;
   updateMikoshiMarker(st.lng, st.lat, bearing);
   if (st.traversedLine && st.traversedLine.geometry) {
@@ -348,12 +371,19 @@ export async function attachToMainMap(mapboxMap) {
         }
       }
     }
-    const merged = routeService.getMergedRoute();
-    const mergedFc = { type: 'FeatureCollection', features: [merged] };
     const initial = routeService.getState(scheduleNowMs());
+    const initialRouteFc =
+      initial.line?.geometry?.type === 'LineString' &&
+      (initial.line.geometry.coordinates?.length ?? 0) >= 2
+        ? {
+            type: 'FeatureCollection',
+            features: [{ type: 'Feature', properties: {}, geometry: initial.line.geometry }]
+          }
+        : { type: 'FeatureCollection', features: [] };
+    lastMikoshiRouteBgSegmentIndex = initial.segmentIndex;
 
     if (!map.getSource(SOURCE_ROUTE)) {
-      map.addSource(SOURCE_ROUTE, { type: 'geojson', data: mergedFc });
+      map.addSource(SOURCE_ROUTE, { type: 'geojson', data: initialRouteFc });
       map.addSource(SOURCE_PROGRESS, {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] }
