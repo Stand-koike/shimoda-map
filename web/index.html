@@ -8,7 +8,7 @@
     <script src='https://api.mapbox.com/mapbox-gl-js/v3.1.0/mapbox-gl.js'></script>
     <link href='https://api.mapbox.com/mapbox-gl-js/v3.1.0/mapbox-gl.css' rel='stylesheet' />
     <!-- 日の出／日の入り・薄明（イラスト昼夜夕切り替え）。失敗時は昼画像のみになる想定 -->
-    <script src="https://unpkg.com/suncalc@1.9.0/suncalc.js"></script>
+    <script async src="https://unpkg.com/suncalc@1.9.0/suncalc.js"></script>
     <!-- 神輿ルート（Turf）: メインマップ統合モジュール用 -->
     <script type="importmap">
     {
@@ -107,6 +107,7 @@
         }
         @media (max-width: 767px) {
             .controls-container {
+                position: fixed;
                 top: auto; bottom: 0; left: 0; right: 0;
                 flex-direction: row; gap: 0;
                 align-items: stretch;
@@ -2505,23 +2506,21 @@ const MapModule = {
             if (this._loaded) return;
             this._loaded = true;
 
-            try {
-                this._addIllustrationMap()
-                    .catch((e) => console.error('[MapModule] イラストレイヤ読込:', e));
-            } catch (e) {
-                console.error('[MapModule] イラストレイヤ読込:', e);
-            }
-            try {
-                LayerManager.init(this._map);
-                import('./js/mikoshi-main-map.js')
-                    .then((mod) => mod.attachToMainMap(this._map))
-                    .catch((e) => console.warn('[Mikoshi]', e));
-            } catch (e) {
-                console.error('[MapModule] レイヤー初期化エラー:', e);
-            }
-            DataModule.fetch();
-            DataModule.startPolling();
-            this._startGPS();
+            Promise.resolve(this._addIllustrationMap())
+                .catch((e) => console.error('[MapModule] イラストレイヤ読込:', e))
+                .then(() => {
+                    try {
+                        LayerManager.init(this._map);
+                        import('./js/mikoshi-main-map.js')
+                            .then((mod) => mod.attachToMainMap(this._map))
+                            .catch((e) => console.warn('[Mikoshi]', e));
+                    } catch (e) {
+                        console.error('[MapModule] レイヤー初期化エラー:', e);
+                    }
+                    DataModule.fetch();
+                    DataModule.startPolling();
+                    this._startGPS();
+                });
         };
 
         this._map.on('load', onMapReady);
@@ -2574,11 +2573,12 @@ const MapModule = {
         ];
 
         const insertStack = resolvedUrls =>
-            new Promise((resolveIllust, rejectIllust) => {
-                try {
-                    const initialPhase = getIllustrationPhase(new Date(), cfg);
-                    phaseDefs.forEach((p, i) => {
+            new Promise((resolveIllust) => {
+                const initialPhase = getIllustrationPhase(new Date(), cfg);
+                phaseDefs.forEach((p, i) => {
+                    try {
                         const finalUrl = Array.isArray(resolvedUrls) ? resolvedUrls[i] : p.url;
+                        if (!finalUrl) return;
                         const opacity = p.key === initialPhase ? 1 : 0;
                         this._map.addSource(`illustration-map-${p.key}`, {
                             type:        'image',
@@ -2591,12 +2591,12 @@ const MapModule = {
                             source:  `illustration-map-${p.key}`,
                             paint:   { 'raster-opacity': opacity, 'raster-fade-duration': 0 }
                         });
-                    });
-                    this._scheduleIllustrationPhase();
-                    resolveIllust();
-                } catch (e) {
-                    rejectIllust(e);
-                }
+                    } catch (e) {
+                        console.warn(`[MapModule] illustration-${p.key} 追加失敗:`, e);
+                    }
+                });
+                this._scheduleIllustrationPhase();
+                resolveIllust();
             });
 
         if (location.protocol === 'file:') {
