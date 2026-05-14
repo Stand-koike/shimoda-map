@@ -7,6 +7,8 @@
 
     <script src='https://api.mapbox.com/mapbox-gl-js/v3.1.0/mapbox-gl.js'></script>
     <link href='https://api.mapbox.com/mapbox-gl-js/v3.1.0/mapbox-gl.css' rel='stylesheet' />
+    <!-- 日の出／日の入り・薄明（イラスト昼夜夕切り替え）。失敗時は昼画像のみになる想定 -->
+    <script src="https://unpkg.com/suncalc@1.9.0/suncalc.js"></script>
     <!-- 神輿ルート（Turf）: メインマップ統合モジュール用 -->
     <script type="importmap">
     {
@@ -17,12 +19,14 @@
     </script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XXXXXXXXXX"></script>
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-XW0F1B5T6E"></script>
     <script>
         window.dataLayer = window.dataLayer || [];
-        function gtag(){ dataLayer.push(arguments); }
+        function gtag(){dataLayer.push(arguments);}
         gtag('js', new Date());
-        gtag('config', 'G-XXXXXXXXXX');
+
+        gtag('config', 'G-XW0F1B5T6E');
     </script>
 
     <style>
@@ -1547,7 +1551,18 @@ const CONFIG = {
     //   ズレ調整: latOffset / lngOffset（度）。見た目: bearing / pitch / initZoom はブラウザで確認後に変更可。
     // ----------------------------------------------------------------
     MAP_IMAGE: {
+        /** 昼（互換キー／デフォルト） */
         url:        '100.png',
+        urlSunset:  '100_sunset.png',
+        urlNight:   '100_nihgt.png',
+        /** 太陽計算観測点（省略時は center の緯経度＝下田エリア／静岡県内） */
+        solarLat:   null,
+        solarLng:   null,
+        timezone:   'Asia/Tokyo',
+        sunsetPreheatMinutes: 45,
+        /** 夕画像の終了: 民用薄明終了 dusk / 航海薄明終了 nauticalDusk */
+        duskBand:   'nautical',
+
         coordinates: [
             [138.9371389, 34.6812813],  // NW
             [138.9587739, 34.6812018],  // NE
@@ -2371,6 +2386,83 @@ const LayerManager = {
 /** 神輿レイヤのユーザー表示（時間帯と AND。モジュールから参照） */
 window.__shimoda_getMikoshiLayerOn = () => !!LayerManager.getDefs().mikoshi?.visible;
 
+/** JST の暦・年月日（数値） */
+function getJstYmdParts(d) {
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Tokyo',
+        year:     'numeric',
+        month:    '2-digit',
+        day:      '2-digit'
+    }).formatToParts(d);
+    const o = {};
+    for (let i = 0; i < parts.length; i++) {
+        const p = parts[i];
+        if (p.type === 'year' || p.type === 'month' || p.type === 'day') o[p.type] = +p.value;
+    }
+    return { y: o.year, m: o.month, d: o.day };
+}
+
+/** JST のその暦日 12:00 に対応する UTC の Date（SunCalc.getTimes 用） */
+function jstCalendarNoonUtcDate(y, m, day) {
+    return new Date(Date.UTC(y, m - 1, day, 3, 0, 0));
+}
+
+/**
+ * イラスト切替フェーズ（CONFIG.MAP_IMAGE + SunCalc）
+ * day | sunset | night
+ */
+function getIllustrationPhase(now, cfg) {
+    if (typeof SunCalc === 'undefined' || !cfg) return 'day';
+    const lat = cfg.solarLat != null ? Number(cfg.solarLat) : cfg.center[1];
+    const lng = cfg.solarLng != null ? Number(cfg.solarLng) : cfg.center[0];
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return 'day';
+
+    let tt;
+    try {
+        const { y, m, d } = getJstYmdParts(now);
+        tt = SunCalc.getTimes(jstCalendarNoonUtcDate(y, m, d), lat, lng);
+    } catch (e) {
+        return 'day';
+    }
+
+    if (!tt?.sunset || !tt?.dawn) return 'day';
+
+    const preMin = Number(cfg.sunsetPreheatMinutes);
+    const preMs = (Number.isFinite(preMin) ? preMin : 45) * 60000;
+    const sunsetStart = tt.sunset.getTime() - preMs;
+
+    const duskKey = cfg.duskBand === 'civil' ? 'dusk' : 'nauticalDusk';
+    const tEveningEnd = tt[duskKey];
+    if (!(tEveningEnd instanceof Date) || isNaN(tEveningEnd.getTime())) return 'day';
+    const eveningEnd = tEveningEnd.getTime();
+
+    const dawn = tt.dawn.getTime();
+    const tMs = now.getTime();
+    if (tMs >= dawn && tMs < sunsetStart) return 'day';
+    if (tMs >= sunsetStart && tMs < eveningEnd) return 'sunset';
+    return 'night';
+}
+
+/** file:// 用: 画像→canvas→blob URL */
+function illustrationImageToBlobUrl(url) {
+    return new Promise(resolve => {
+        const img = new Image();
+        img.onload = () => {
+            try {
+                const c = document.createElement('canvas');
+                c.width = img.naturalWidth;
+                c.height = img.naturalHeight;
+                c.getContext('2d').drawImage(img, 0, 0);
+                c.toBlob(blob => resolve(blob ? URL.createObjectURL(blob) : url));
+            } catch (e) {
+                resolve(url);
+            }
+        };
+        img.onerror = () => resolve(url);
+        img.src = url;
+    });
+}
+
 // ================================================================
 // MapModule — マップ初期化・イラストマップ表示・GPS
 // ================================================================
@@ -2378,6 +2470,9 @@ const MapModule = {
     _map: null,
 
     _loaded: false,
+
+    _illustrationTimer:           null,
+    _illustrationVisibilityBound: null,
 
     init() {
         mapboxgl.accessToken = CONFIG.MAPBOX_TOKEN;
@@ -2409,18 +2504,22 @@ const MapModule = {
         const onMapReady = () => {
             if (this._loaded) return;
             this._loaded = true;
-            try {
-                this._addIllustrationMap();
-                LayerManager.init(this._map);
-                import('./js/mikoshi-main-map.js')
-                    .then((mod) => mod.attachToMainMap(this._map))
-                    .catch((e) => console.warn('[Mikoshi]', e));
-            } catch (e) {
-                console.error('[MapModule] レイヤー初期化エラー:', e);
-            }
-            DataModule.fetch();
-            DataModule.startPolling();
-            this._startGPS();
+
+            Promise.resolve(this._addIllustrationMap())
+                .then(() => {
+                    try {
+                        LayerManager.init(this._map);
+                        import('./js/mikoshi-main-map.js')
+                            .then((mod) => mod.attachToMainMap(this._map))
+                            .catch((e) => console.warn('[Mikoshi]', e));
+                    } catch (e) {
+                        console.error('[MapModule] レイヤー初期化エラー:', e);
+                    }
+                    DataModule.fetch();
+                    DataModule.startPolling();
+                    this._startGPS();
+                })
+                .catch((e) => console.error('[MapModule] イラストレイヤ読込:', e));
         };
 
         this._map.on('load', onMapReady);
@@ -2454,39 +2553,76 @@ const MapModule = {
         });
     },
 
+    /**
+     * 昼・夕・夜の raster を積む。Promise は file:// 時に 3 枚の blob 化が終わってから resolve。
+     * @returns {Promise<void>}
+     */
     _addIllustrationMap() {
-        const { url, coordinates, latOffset = 0, lngOffset = 0 } = CONFIG.MAP_IMAGE;
+        const cfg = CONFIG.MAP_IMAGE;
+        const dayUrl = cfg.urlDay || cfg.url;
+        const sunsetUrl = cfg.urlSunset;
+        const nightUrl = cfg.urlNight;
+        const { coordinates, latOffset = 0, lngOffset = 0 } = cfg;
         const adjustedCoords = coordinates.map(([lng, lat]) => [lng + lngOffset, lat + latOffset]);
-        const addSource = (finalUrl) => {
-            this._map.addSource('illustration-map', {
-                type:        'image',
-                url:         finalUrl,
-                coordinates: adjustedCoords
-            });
-            this._map.addLayer({
-                id:    'illustration-map-layer',
-                type:  'raster',
-                source:'illustration-map',
-                paint: { 'raster-opacity': 1, 'raster-fade-duration': 0 }
-            });
-        };
 
-        // file:// 環境では fetch が blocked になることがあるため、
-        // HTMLImageElement→canvas 経由で blob URL に変換して渡す
-        if (location.protocol === 'file:') {
-            const img = new Image();
-            img.onload = () => {
+        const phaseDefs = [
+            { key: 'day', url: dayUrl },
+            { key: 'sunset', url: sunsetUrl },
+            { key: 'night', url: nightUrl }
+        ];
+
+        const insertStack = resolvedUrls =>
+            new Promise((resolveIllust, rejectIllust) => {
                 try {
-                    const c = document.createElement('canvas');
-                    c.width = img.naturalWidth; c.height = img.naturalHeight;
-                    c.getContext('2d').drawImage(img, 0, 0);
-                    c.toBlob(blob => addSource(blob ? URL.createObjectURL(blob) : url));
-                } catch (e) { addSource(url); }
+                    const initialPhase = getIllustrationPhase(new Date(), cfg);
+                    phaseDefs.forEach((p, i) => {
+                        const finalUrl = Array.isArray(resolvedUrls) ? resolvedUrls[i] : p.url;
+                        const opacity = p.key === initialPhase ? 1 : 0;
+                        this._map.addSource(`illustration-map-${p.key}`, {
+                            type:        'image',
+                            url:         finalUrl,
+                            coordinates: adjustedCoords
+                        });
+                        this._map.addLayer({
+                            id:      `illustration-map-layer-${p.key}`,
+                            type:    'raster',
+                            source:  `illustration-map-${p.key}`,
+                            paint:   { 'raster-opacity': opacity, 'raster-fade-duration': 0 }
+                        });
+                    });
+                    this._scheduleIllustrationPhase();
+                    resolveIllust();
+                } catch (e) {
+                    rejectIllust(e);
+                }
+            });
+
+        if (location.protocol === 'file:') {
+            return Promise.all(phaseDefs.map(p => illustrationImageToBlobUrl(p.url))).then(insertStack);
+        }
+        return insertStack(null);
+    },
+
+    _scheduleIllustrationPhase() {
+        const apply = () => this._applyIllustrationTimePhase();
+        apply();
+        if (this._illustrationTimer) clearInterval(this._illustrationTimer);
+        this._illustrationTimer = setInterval(apply, 45000);
+        if (!this._illustrationVisibilityBound) {
+            this._illustrationVisibilityBound = () => {
+                if (document.visibilityState === 'visible') apply();
             };
-            img.onerror = () => addSource(url);
-            img.src = url;
-        } else {
-            addSource(url);
+            document.addEventListener('visibilitychange', this._illustrationVisibilityBound);
+        }
+    },
+
+    _applyIllustrationTimePhase() {
+        if (!this._map) return;
+        const keys = ['day', 'sunset', 'night'];
+        if (!keys.every(k => this._map.getLayer(`illustration-map-layer-${k}`))) return;
+        const phase = getIllustrationPhase(new Date(), CONFIG.MAP_IMAGE);
+        for (const key of keys) {
+            this._map.setPaintProperty(`illustration-map-layer-${key}`, 'raster-opacity', key === phase ? 1 : 0);
         }
     },
 
