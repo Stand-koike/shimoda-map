@@ -17,10 +17,11 @@ function toMillis(isoOrUnknown) {
 
 /**
  * @param {string} dataUrl GeoJSON URL
+ * @param {RequestInit} [fetchInit] 例: `{ cache: 'no-store' }` で更新直後の GeoJSON を確実に取る
  * @returns {Promise<{ fc: import('geojson').FeatureCollection, byId: Map<string, { id: string, name: string, arrivalMs: number|null, feature: import('geojson').Feature }> }>}
  */
-export async function loadCheckpoints(dataUrl) {
-  const res = await fetch(dataUrl);
+export async function loadCheckpoints(dataUrl, fetchInit) {
+  const res = await fetch(dataUrl, fetchInit);
   if (!res.ok) throw new Error(`checkpoints fetch ${res.status}`);
   /** @type {import('geojson').FeatureCollection} */
   const fc = await res.json();

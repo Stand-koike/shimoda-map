@@ -209,14 +209,15 @@ export class RouteService {
       return this._bearingState(last, last.lengthKm, endPt, sliced, sched.length - 1, 1, 'after_last');
     }
 
-    for (let i = 0; i < sched.length; i++) {
+    // 区間内: 降順で探す。前後の区間で tEnd === tStart のときは後ろの区間を採用（にぎわいへ進む）
+    for (let i = sched.length - 1; i >= 0; i--) {
       const row = sched[i];
       if (nowMs >= row.tStart && nowMs <= row.tEnd) {
         const elapsedSec = (nowMs - row.tStart) / 1000;
         const durationSec = Math.max((row.tEnd - row.tStart) / 1000, 1e-6);
         const e = row.feature.properties?.easing || 'linear';
         const easedU = applyEasing(e, elapsedSec, durationSec);
-        const distKm = easedU * row.lengthKm;
+        const distKm = Math.min(easedU * row.lengthKm, row.lengthKm);
         const currentPoint = turf.along(row.line, distKm, UNITS);
 
         const startCp = this._cpById.get(row.feature.properties?.start_cp);
@@ -228,8 +229,11 @@ export class RouteService {
 
         return this._bearingState(row, distKm, currentPoint, traversedLine, i, easedU, 'during');
       }
+    }
 
-      if (i < sched.length - 1 && nowMs > row.tEnd && nowMs < sched[i + 1].tStart) {
+    for (let i = 0; i < sched.length - 1; i++) {
+      const row = sched[i];
+      if (nowMs > row.tEnd && nowMs < sched[i + 1].tStart) {
         const endCp = this._cpById.get(row.feature.properties?.end_cp);
         const holdPt = endCp
           ? snapCpToLine(endCp.feature, row.line)

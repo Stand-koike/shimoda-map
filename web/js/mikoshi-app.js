@@ -16,7 +16,7 @@ function readToken() {
 }
 
 async function loadSegments() {
-  const res = await fetch(SEG_URL);
+  const res = await fetch(SEG_URL, { cache: 'no-store' });
   if (!res.ok) throw new Error(`route_segments ${res.status}`);
   return res.json();
 }
@@ -67,7 +67,7 @@ async function main() {
   }
 
   const [{ fc: cpFc, byId: cpById }, segmentsFc] = await Promise.all([
-    loadCheckpoints(CP_URL),
+    loadCheckpoints(CP_URL, { cache: 'no-store' }),
     loadSegments()
   ]);
 

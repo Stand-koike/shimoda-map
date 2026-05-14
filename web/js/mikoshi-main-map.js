@@ -88,6 +88,60 @@ function initPreviewClock(routeServiceInstance) {
   );
 }
 
+/**
+ * テスト用: `?mikoshiSegment=seg_01` または `?mikoshiSegments=seg_01,seg_02`
+ * 指定した `segment_id` の区間だけを接続・表示（本番 URL では付けない想定）。
+ * @returns {Set<string> | null}
+ */
+function parseMikoshiSegmentTestFilter() {
+  try {
+    const q = new URLSearchParams(location.search);
+    const raw = q.get('mikoshiSegments') || q.get('mikoshiSegment');
+    if (raw == null || String(raw).trim() === '') return null;
+    const ids = String(raw)
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return ids.length ? new Set(ids) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {import('geojson').FeatureCollection} fc
+ * @param {Set<string>} idSet
+ */
+function featureCollectionOnlySegmentIds(fc, idSet) {
+  const features = (fc.features || []).filter((f) =>
+    idSet.has(String(f.properties?.segment_id))
+  );
+  return /** @type {import('geojson').FeatureCollection} */ ({
+    type: 'FeatureCollection',
+    features
+  });
+}
+
+/**
+ * @param {import('geojson').FeatureCollection} cpFc
+ * @param {import('geojson').Feature[]} segmentFeatures
+ */
+function filterCheckpointsForSegmentFeatures(cpFc, segmentFeatures) {
+  const ids = new Set();
+  for (const f of segmentFeatures) {
+    const p = f.properties || {};
+    if (p.start_cp) ids.add(String(p.start_cp));
+    if (p.end_cp) ids.add(String(p.end_cp));
+  }
+  const features = (cpFc.features || []).filter((f) =>
+    ids.has(String(f.properties?.checkpoint_id))
+  );
+  return /** @type {import('geojson').FeatureCollection} */ ({
+    type: 'FeatureCollection',
+    features
+  });
+}
+
 const SOURCE_ROUTE = 'mikoshi-route-line';
 const SOURCE_PROGRESS = 'mikoshi-route-progress';
 const SOURCE_CP = 'mikoshi-checkpoints';
@@ -226,15 +280,37 @@ function tick() {
 export async function attachToMainMap(mapboxMap) {
   map = mapboxMap;
   try {
+    const fetchFreshGeo = { cache: 'no-store' };
     const [{ fc: cpFc, byId: cpById }, segmentsFc] = await Promise.all([
-      loadCheckpoints(CP_URL),
-      fetch(SEG_URL).then((r) => {
+      loadCheckpoints(CP_URL, fetchFreshGeo),
+      fetch(SEG_URL, fetchFreshGeo).then((r) => {
         if (!r.ok) throw new Error(`route_segments ${r.status}`);
         return r.json();
       })
     ]);
 
-    routeService = new RouteService(segmentsFc, cpById);
+    const segmentTestFilter = parseMikoshiSegmentTestFilter();
+    let segmentsUse = segmentsFc;
+    let cpDisplayFc = cpFc;
+    if (segmentTestFilter) {
+      const filtered = featureCollectionOnlySegmentIds(segmentsFc, segmentTestFilter);
+      if (filtered.features.length) {
+        segmentsUse = filtered;
+        cpDisplayFc = filterCheckpointsForSegmentFeatures(cpFc, filtered.features);
+        console.info(
+          '[Mikoshi] テスト用・区間のみ表示:',
+          [...segmentTestFilter],
+          '（本番公開 URL ではこのパラメータを外してください）'
+        );
+      } else {
+        console.warn(
+          '[Mikoshi] mikoshiSegment(s) と一致する区間がありません。全区間で続行します',
+          [...segmentTestFilter]
+        );
+      }
+    }
+
+    routeService = new RouteService(segmentsUse, cpById);
     applyPreviewTimeShift(routeService);
     initPreviewClock(routeService);
     if (new URLSearchParams(location.search).get('mikoshiDebug') === '1') {
@@ -242,14 +318,34 @@ export async function attachToMainMap(mapboxMap) {
       if (s.length) {
         const t0 = s[0].tStart;
         const t1 = s[s.length - 1].tEnd;
-        const n = Date.now();
+        const startGate = previewUrlActive ? t0 - PREVIEW_PREROLL_MS : t0;
+        const nowMs = scheduleNowMs();
+        const layerOn =
+          typeof window.__shimoda_getMikoshiLayerOn === 'function'
+            ? window.__shimoda_getMikoshiLayerOn()
+            : true;
+        const inSchedule = nowMs >= startGate && nowMs <= t1;
         console.info('[Mikoshi debug]', {
           t0Jst: new Date(t0).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
+          startGateJst: new Date(startGate).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
           t1Jst: new Date(t1).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
-          nowJst: new Date(n).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
-          inWindow: n >= t0 && n <= t1,
+          nowJst: new Date(nowMs).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
+          inScheduleWindow: inSchedule,
+          layerMikoshiOn: layerOn,
+          willRender: inSchedule && layerOn,
           previewUrlActive
         });
+        if (!inSchedule) {
+          if (nowMs < startGate) {
+            console.info(
+              '[Mikoshi] いまは表示ウィンドウの前です。先頭区間の開始（startGate）以降にレイヤーが表示されます。'
+            );
+          } else {
+            console.info('[Mikoshi] いまは表示ウィンドウの後です（最終区間終了時刻を過ぎています）。');
+          }
+        } else if (!layerOn) {
+          console.info('[Mikoshi] スケジュール内ですが、レイヤーパネルで「神輿ルート」が OFF です。');
+        }
       }
     }
     const merged = routeService.getMergedRoute();
@@ -262,7 +358,7 @@ export async function attachToMainMap(mapboxMap) {
         type: 'geojson',
         data: { type: 'FeatureCollection', features: [] }
       });
-      map.addSource(SOURCE_CP, { type: 'geojson', data: cpFc });
+      map.addSource(SOURCE_CP, { type: 'geojson', data: cpDisplayFc });
     }
 
     if (!map.getLayer('mikoshi-layer-route')) {

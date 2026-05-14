@@ -119,5 +119,6 @@ python -m http.server 8080
 
 - **[../index.html](../index.html) にも統合済み**です。マップ読込後に `js/mikoshi-main-map.js` が動的 import され、レイヤーパネルに **「神輿ルート」** が追加されます。
 - **表示条件**:（1）`checkpoints` / `route_segments` の **スケジュール時間内**、かつ（2）レイヤーパネルで神輿が **ON**。時間外は自動で非表示（トグル ON でも出ません）。
+- **メイン地図で1ルートだけ試す**: `index.html?mikoshiSegment=seg_01` または `seg_02`（本番公開ではパラメータなし）。
 - **プレビュー**: メイン URL に **`?mikoshiPreview=1`** を付けると、スケジュールを **いまが先頭 CP 通過時刻**になるようにシフトしつつ、**時刻だけ約 120 倍速**（既定）で進めます（本番は55分かかるルートが数十秒で一周するイメージ）。倍率は **`&mikoshiSpeed=200`** のように **1〜4000** で変更可能。終了後は同じ速さでループします。遅延開始は `&mikoshiLeadSec=30`。
 - スタンドアロン版は [index.html](index.html)（`/mikoshi/index.html`）のまま利用できます。
