@@ -7,8 +7,9 @@
 
     <script src='https://api.mapbox.com/mapbox-gl-js/v3.1.0/mapbox-gl.js'></script>
     <link href='https://api.mapbox.com/mapbox-gl-js/v3.1.0/mapbox-gl.css' rel='stylesheet' />
-    <!-- 日の出／日の入り・薄明（イラスト昼夜夕切り替え）。失敗時は昼画像のみになる想定 -->
-    <script src="https://unpkg.com/suncalc@1.9.0/suncalc.js"></script>
+    <!-- 日の出／日の入り・薄明（イラスト昼夜夕切り替え）。失敗・遅延時は昼画像のみ -->
+    <!-- async: ページ起動をブロックしない。getIllustrationPhase は typeof SunCalc === 'undefined' ガード済み -->
+    <script src="https://unpkg.com/suncalc@1.9.0/suncalc.js" async></script>
     <!-- 神輿ルート（Turf）: メインマップ統合モジュール用 -->
     <script type="importmap">
     {
@@ -3757,6 +3758,16 @@ const App = {
             State.lastDataHash = '';
         }
         MapModule.init();
+
+        // 安全網: 50 秒後もまだ loading 中なら Retry ボタンを表示して操作できるようにする
+        setTimeout(() => {
+            const el = document.getElementById('loading');
+            if (el && el.style.display !== 'none') {
+                console.warn('[App] 50s 経過しても loading 中 — Retry ボタンを表示');
+                const retryEl = document.getElementById('loading-retry');
+                if (retryEl) retryEl.style.display = 'block';
+            }
+        }, 50000);
     },
 
     // データ取得完了後のメイン処理
