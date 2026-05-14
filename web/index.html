@@ -2505,21 +2505,23 @@ const MapModule = {
             if (this._loaded) return;
             this._loaded = true;
 
-            Promise.resolve(this._addIllustrationMap())
-                .then(() => {
-                    try {
-                        LayerManager.init(this._map);
-                        import('./js/mikoshi-main-map.js')
-                            .then((mod) => mod.attachToMainMap(this._map))
-                            .catch((e) => console.warn('[Mikoshi]', e));
-                    } catch (e) {
-                        console.error('[MapModule] レイヤー初期化エラー:', e);
-                    }
-                    DataModule.fetch();
-                    DataModule.startPolling();
-                    this._startGPS();
-                })
-                .catch((e) => console.error('[MapModule] イラストレイヤ読込:', e));
+            try {
+                this._addIllustrationMap()
+                    .catch((e) => console.error('[MapModule] イラストレイヤ読込:', e));
+            } catch (e) {
+                console.error('[MapModule] イラストレイヤ読込:', e);
+            }
+            try {
+                LayerManager.init(this._map);
+                import('./js/mikoshi-main-map.js')
+                    .then((mod) => mod.attachToMainMap(this._map))
+                    .catch((e) => console.warn('[Mikoshi]', e));
+            } catch (e) {
+                console.error('[MapModule] レイヤー初期化エラー:', e);
+            }
+            DataModule.fetch();
+            DataModule.startPolling();
+            this._startGPS();
         };
 
         this._map.on('load', onMapReady);
