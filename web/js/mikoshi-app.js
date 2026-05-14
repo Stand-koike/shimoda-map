@@ -1,10 +1,13 @@
 import { loadCheckpoints } from './services/checkpointService.js';
-import { RouteService } from './services/routeService.js';
+import { RouteService, mergeRouteLineString } from './services/routeService.js';
 import { MapService } from './services/mapService.js';
 import { AnimationService } from './services/animationService.js';
 
 const CP_URL = new URL('../public/data/checkpoints.geojson', import.meta.url).href;
 const SEG_URL = new URL('../public/data/route_segments.geojson', import.meta.url).href;
+
+/** スタンドアロンデモで追従させる区間（メインマップは従来どおり全セグメント） */
+const DEMO_SEGMENT_ID = 'seg_02';
 
 function readToken() {
   const s = window.__SHIMODA_MAP_SECRETS__;
@@ -16,6 +19,34 @@ async function loadSegments() {
   const res = await fetch(SEG_URL);
   if (!res.ok) throw new Error(`route_segments ${res.status}`);
   return res.json();
+}
+
+/**
+ * @param {import('geojson').FeatureCollection} fc
+ * @param {string} segmentId
+ */
+function featureCollectionBySegmentId(fc, segmentId) {
+  const features = (fc.features || []).filter(
+    (f) => String(f.properties?.segment_id) === segmentId
+  );
+  return /** @type {import('geojson').FeatureCollection} */ ({ type: 'FeatureCollection', features });
+}
+
+/**
+ * @param {import('geojson').FeatureCollection} cpFc
+ * @param {import('geojson').Feature[]} segmentFeatures
+ */
+function filterCheckpointsForSegments(cpFc, segmentFeatures) {
+  const ids = new Set();
+  for (const f of segmentFeatures) {
+    const p = f.properties || {};
+    if (p.start_cp) ids.add(String(p.start_cp));
+    if (p.end_cp) ids.add(String(p.end_cp));
+  }
+  const features = (cpFc.features || []).filter((f) =>
+    ids.has(String(f.properties?.checkpoint_id))
+  );
+  return /** @type {import('geojson').FeatureCollection} */ ({ type: 'FeatureCollection', features });
 }
 
 function showErr(msg) {
@@ -40,9 +71,28 @@ async function main() {
     loadSegments()
   ]);
 
-  const routeService = new RouteService(segmentsFc, cpById);
+  const segmentsDemoFc = featureCollectionBySegmentId(segmentsFc, DEMO_SEGMENT_ID);
+  if (!segmentsDemoFc.features.length) {
+    showErr(`route_segments.geojson に ${DEMO_SEGMENT_ID} がありません。`);
+    return;
+  }
+
+  const routeService = new RouteService(segmentsDemoFc, cpById);
   const merged = routeService.getMergedRoute();
   const mergedFc = { type: 'FeatureCollection', features: [merged] };
+
+  let altMerged = null;
+  let altMergedFc = null;
+  const segmentsOfficialFc = featureCollectionBySegmentId(segmentsFc, 'seg_01');
+  if (segmentsOfficialFc.features.length) {
+    const sortedOfficial = [...segmentsOfficialFc.features].sort(
+      (a, b) => (a.properties?.seq ?? 0) - (b.properties?.seq ?? 0)
+    );
+    altMerged = mergeRouteLineString(sortedOfficial);
+    altMergedFc = { type: 'FeatureCollection', features: [altMerged] };
+  }
+
+  const checkpointsDisplayFc = filterCheckpointsForSegments(cpFc, segmentsDemoFc.features);
 
   const initial = routeService.getState();
   const mapService = new MapService({
@@ -54,11 +104,12 @@ async function main() {
 
   await mapService.init({
     mergedRouteFc: mergedFc,
-    checkpointsFc: cpFc,
+    altMergedRouteFc: altMergedFc || undefined,
+    checkpointsFc: checkpointsDisplayFc,
     initialPoint: [initial.lng, initial.lat]
   });
 
-  mapService.fitRouteBounds(merged);
+  mapService.fitRouteBounds(merged, altMerged || undefined);
 
   let iconSize = 0.675;
   const anim = new AnimationService({
@@ -73,7 +124,7 @@ async function main() {
   const lblPhase = document.getElementById('lbl-phase');
 
   if (btnFit) {
-    btnFit.addEventListener('click', () => mapService.fitRouteBounds(merged));
+    btnFit.addEventListener('click', () => mapService.fitRouteBounds(merged, altMerged || undefined));
   }
   const clampIcon = (v) => Math.min(0.85, Math.max(0.25, v));
   if (btnMinus) {

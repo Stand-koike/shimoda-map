@@ -9,10 +9,10 @@ const CP_URL = new URL('../public/data/checkpoints.geojson', import.meta.url).hr
 const SEG_URL = new URL('../public/data/route_segments.geojson', import.meta.url).href;
 const ICON_URL = new URL('../public/icons/パレードロゴ.png', import.meta.url).href;
 
-/** URL で ?mikoshiPreview=1 のとき true（表示ウィンドウをわずかに前倒し） */
+/** URL で ?mikoshiPreview=1 等を付けたときのみ true（時刻シフト＋早送り再生） */
 let previewUrlActive = false;
 
-/** プレビュー早送り: アンカーと倍率（本番は約55分なのでこれが無いとほぼ動いて見えない） */
+/** プレビュー早送り: アンカーと倍率 */
 /** @type {{ anchorReal: number, anchorSched: number, speed: number } | null} */
 let previewClock = null;
 
@@ -45,32 +45,6 @@ function applyPreviewTimeShift(routeService) {
     );
   } catch (err) {
     console.warn('[Mikoshi] プレビューシフト失敗', err);
-  }
-}
-
-/**
- * GitHub Pages 等 *.github.io: CP の arrival_time がブラウザの「今」と重ならないとレイヤーが一切出ない。
- * スケジュール外のときだけ自動デモ（プレビュー相当）。本番当日の実時間のみは URL に ?mikoshiLive=1
- */
-function maybeEnableGithubPagesAutoDemo(rs) {
-  if (previewUrlActive || !rs) return;
-  try {
-    if (!/\.github\.io$/i.test(location.hostname)) return;
-    const q = new URLSearchParams(window.location.search);
-    if (q.get('mikoshiLive') === '1') return;
-    const sched = rs.getSchedule();
-    if (!sched.length) return;
-    const t0 = sched[0].tStart;
-    const t1 = sched[sched.length - 1].tEnd;
-    const now = Date.now();
-    if (now >= t0 && now <= t1) return;
-    previewUrlActive = true;
-    rs.applyTimeShift(now - t0 - 500);
-    console.info(
-      '[Mikoshi] GitHub Pages: CP時刻が現在と重ならないためデモ表示（実時間のみ: ?mikoshiLive=1）'
-    );
-  } catch (e) {
-    console.warn('[Mikoshi] GitHub Pages 自動デモ失敗', e);
   }
 }
 
@@ -262,7 +236,6 @@ export async function attachToMainMap(mapboxMap) {
 
     routeService = new RouteService(segmentsFc, cpById);
     applyPreviewTimeShift(routeService);
-    maybeEnableGithubPagesAutoDemo(routeService);
     initPreviewClock(routeService);
     if (new URLSearchParams(location.search).get('mikoshiDebug') === '1') {
       const s = routeService.getSchedule();

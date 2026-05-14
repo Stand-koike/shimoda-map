@@ -3,11 +3,13 @@
  */
 
 const SOURCE_ROUTE = 'mikoshi-route-line';
+const SOURCE_ROUTE_ALT = 'mikoshi-route-line-alt';
 const SOURCE_PROGRESS = 'mikoshi-route-progress';
 const SOURCE_CP = 'mikoshi-checkpoints';
 const SOURCE_MIKOSHI = 'mikoshi-position';
 
 const LAYER_ROUTE = 'mikoshi-layer-route';
+const LAYER_ROUTE_ALT = 'mikoshi-layer-route-alt';
 const LAYER_PROGRESS = 'mikoshi-layer-progress';
 const LAYER_CP = 'mikoshi-layer-checkpoints';
 const LAYER_MIKOSHI = 'mikoshi-layer-symbol';
@@ -70,7 +72,7 @@ export class MapService {
     this._iconLoaded = false;
   }
 
-  async init({ mergedRouteFc, checkpointsFc, initialPoint }) {
+  async init({ mergedRouteFc, altMergedRouteFc, checkpointsFc, initialPoint }) {
     mapboxgl.accessToken = this._opts.accessToken;
 
     this._map = new mapboxgl.Map({
@@ -97,6 +99,24 @@ export class MapService {
     }
     this._iconLoaded = true;
 
+    const hasAlt =
+      altMergedRouteFc &&
+      Array.isArray(altMergedRouteFc.features) &&
+      altMergedRouteFc.features.length > 0;
+    if (hasAlt) {
+      this._map.addSource(SOURCE_ROUTE_ALT, { type: 'geojson', data: altMergedRouteFc });
+      this._map.addLayer({
+        id: LAYER_ROUTE_ALT,
+        type: 'line',
+        source: SOURCE_ROUTE_ALT,
+        paint: {
+          'line-color': '#ff9800',
+          'line-width': 4,
+          'line-opacity': 0.82,
+          'line-dasharray': [1.2, 1.2]
+        }
+      });
+    }
     this._map.addSource(SOURCE_ROUTE, { type: 'geojson', data: mergedRouteFc });
     this._map.addSource(SOURCE_PROGRESS, {
       type: 'geojson',
@@ -187,13 +207,17 @@ export class MapService {
     this._map.setLayoutProperty(LAYER_MIKOSHI, 'icon-size', size);
   }
 
-  fitRouteBounds(mergedLineStringFeature) {
+  fitRouteBounds(mergedLineStringFeature, altMergedFeature) {
     if (!this._map || !mergedLineStringFeature?.geometry?.coordinates?.length) return;
     const b = new mapboxgl.LngLatBounds(
       mergedLineStringFeature.geometry.coordinates[0],
       mergedLineStringFeature.geometry.coordinates[0]
     );
     mergedLineStringFeature.geometry.coordinates.forEach((c) => b.extend(c));
+    const altCoords = altMergedFeature?.geometry?.coordinates;
+    if (Array.isArray(altCoords) && altCoords.length) {
+      altCoords.forEach((c) => b.extend(c));
+    }
     this._map.fitBounds(b, {
       padding: { top: 100, bottom: 200, left: 40, right: 40 },
       maxZoom: 17,
