@@ -85,6 +85,13 @@
             color: var(--color-primary); z-index: 9999;
             pointer-events: none; box-shadow: var(--shadow-soft);
             backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+        }
+        @media (max-width: 767px) {
+            #loading {
+                backdrop-filter: none;
+                -webkit-backdrop-filter: none;
+            }
         }
         #loading .loading-retry {
             display: none; margin-top: 8px; text-align: center;
@@ -2443,9 +2450,22 @@ function getIllustrationPhase(now, cfg) {
     return 'night';
 }
 
-/** file:// 用: 画像→canvas→blob URL */
-function illustrationImageToBlobUrl(url) {
+/** file:// 用: 画像→canvas→blob URL（未完了時は timeoutMs 後に元 URL で返す） */
+function illustrationImageToBlobUrl(url, timeoutMs) {
+    const limit = Number(timeoutMs);
+    const ms = Number.isFinite(limit) && limit > 0 ? limit : 12000;
     return new Promise(resolve => {
+        let settled = false;
+        const finish = (v) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(tid);
+            resolve(v);
+        };
+        const tid = setTimeout(() => {
+            console.warn('[MapModule] illustration blob 化タイムアウト — 元 URL を使用', url);
+            finish(url);
+        }, ms);
         const img = new Image();
         img.onload = () => {
             try {
@@ -2453,12 +2473,12 @@ function illustrationImageToBlobUrl(url) {
                 c.width = img.naturalWidth;
                 c.height = img.naturalHeight;
                 c.getContext('2d').drawImage(img, 0, 0);
-                c.toBlob(blob => resolve(blob ? URL.createObjectURL(blob) : url));
+                c.toBlob(blob => finish(blob ? URL.createObjectURL(blob) : url));
             } catch (e) {
-                resolve(url);
+                finish(url);
             }
         };
-        img.onerror = () => resolve(url);
+        img.onerror = () => finish(url);
         img.src = url;
     });
 }
@@ -2506,12 +2526,6 @@ const MapModule = {
             this._loaded = true;
 
             try {
-                this._addIllustrationMap()
-                    .catch((e) => console.error('[MapModule] イラストレイヤ読込:', e));
-            } catch (e) {
-                console.error('[MapModule] イラストレイヤ読込:', e);
-            }
-            try {
                 LayerManager.init(this._map);
                 import('./js/mikoshi-main-map.js')
                     .then((mod) => mod.attachToMainMap(this._map))
@@ -2522,6 +2536,13 @@ const MapModule = {
             DataModule.fetch();
             DataModule.startPolling();
             this._startGPS();
+
+            Promise.resolve(this._addIllustrationMap())
+                .catch((e) => {
+                    console.error('[MapModule] イラストレイヤ読込:', e);
+                    return this._addIllustrationMapDayFallback();
+                })
+                .catch((e2) => console.error('[MapModule] イラスト昼フォールバック失敗:', e2));
         };
 
         this._map.on('load', onMapReady);
@@ -2553,6 +2574,63 @@ const MapModule = {
                 }, 310);
             }
         });
+    },
+
+    /** イラスト用 source/layer（day/sunset/night）を取り除く */
+    _removeIllustrationRasterStack() {
+        if (!this._map) return;
+        if (this._illustrationTimer) {
+            clearInterval(this._illustrationTimer);
+            this._illustrationTimer = null;
+        }
+        ['night', 'sunset', 'day'].forEach((key) => {
+            const lid = `illustration-map-layer-${key}`;
+            const sid = `illustration-map-${key}`;
+            try {
+                if (this._map.getLayer(lid)) this._map.removeLayer(lid);
+                if (this._map.getSource(sid)) this._map.removeSource(sid);
+            } catch (e) {
+                console.warn('[MapModule] イラストレイヤ削除:', e);
+            }
+        });
+    },
+
+    /**
+     * 3 枚スタック失敗時: 昼 1 枚のみ（日周り切替なし）
+     * @returns {Promise<void>}
+     */
+    _addIllustrationMapDayFallback() {
+        const cfg = CONFIG.MAP_IMAGE;
+        const dayUrl = cfg.urlDay || cfg.url;
+        const { coordinates, latOffset = 0, lngOffset = 0 } = cfg;
+        const adjustedCoords = coordinates.map(([lng, lat]) => [lng + lngOffset, lat + latOffset]);
+
+        this._removeIllustrationRasterStack();
+
+        const insertDay = (finalUrl) => {
+            if (this._map.getSource('illustration-map-day')) return;
+            this._map.addSource('illustration-map-day', {
+                type:        'image',
+                url:         finalUrl,
+                coordinates: adjustedCoords
+            });
+            this._map.addLayer({
+                id:      'illustration-map-layer-day',
+                type:    'raster',
+                source:  'illustration-map-day',
+                paint:   { 'raster-opacity': 1, 'raster-fade-duration': 0 }
+            });
+        };
+
+        if (location.protocol === 'file:') {
+            return illustrationImageToBlobUrl(dayUrl).then((u) => { insertDay(u); });
+        }
+        try {
+            insertDay(dayUrl);
+            return Promise.resolve();
+        } catch (e) {
+            return Promise.reject(e);
+        }
     },
 
     /**
