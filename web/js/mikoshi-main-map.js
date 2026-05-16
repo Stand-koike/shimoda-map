@@ -163,11 +163,21 @@ function isWithinScheduleWindow() {
   if (!routeService) return false;
   const sched = routeService.getSchedule();
   if (!sched.length) return false;
-  const t0 = sched[0].tStart;
-  const t1 = sched[sched.length - 1].tEnd;
   const nowMs = scheduleNowMs();
-  const startGate = previewUrlActive ? t0 - PREVIEW_PREROLL_MS : t0;
-  return nowMs >= startGate && nowMs <= t1;
+
+  if (previewUrlActive) {
+    // プレビュー時: 全体スパン（先頭プリロール付き）で判定
+    const t0 = sched[0].tStart;
+    const t1 = sched[sched.length - 1].tEnd;
+    return nowMs >= t0 - PREVIEW_PREROLL_MS && nowMs <= t1;
+  }
+
+  // 通常時: いずれかの区間の [tStart, tEnd] 内にある場合のみ表示。
+  // セグメント間の空き時間（例: seg_01終了〜seg_02開始）はレイヤーを非表示にする。
+  for (const row of sched) {
+    if (nowMs >= row.tStart && nowMs <= row.tEnd) return true;
+  }
+  return false;
 }
 
 function userWantsLayer() {
@@ -339,32 +349,38 @@ export async function attachToMainMap(mapboxMap) {
     if (new URLSearchParams(location.search).get('mikoshiDebug') === '1') {
       const s = routeService.getSchedule();
       if (s.length) {
-        const t0 = s[0].tStart;
-        const t1 = s[s.length - 1].tEnd;
-        const startGate = previewUrlActive ? t0 - PREVIEW_PREROLL_MS : t0;
         const nowMs = scheduleNowMs();
         const layerOn =
           typeof window.__shimoda_getMikoshiLayerOn === 'function'
             ? window.__shimoda_getMikoshiLayerOn()
             : true;
-        const inSchedule = nowMs >= startGate && nowMs <= t1;
+        const inSchedule = isWithinScheduleWindow();
+        const activeRow = s.find((r) => nowMs >= r.tStart && nowMs <= r.tEnd);
         console.info('[Mikoshi debug]', {
-          t0Jst: new Date(t0).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
-          startGateJst: new Date(startGate).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
-          t1Jst: new Date(t1).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
+          segments: s.map((r, i) => ({
+            i,
+            id: r.feature.properties?.segment_id,
+            tStartJst: new Date(r.tStart).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
+            tEndJst: new Date(r.tEnd).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
+          })),
           nowJst: new Date(nowMs).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
+          activeSegment: activeRow ? activeRow.feature.properties?.segment_id : null,
           inScheduleWindow: inSchedule,
           layerMikoshiOn: layerOn,
           willRender: inSchedule && layerOn,
           previewUrlActive
         });
         if (!inSchedule) {
-          if (nowMs < startGate) {
+          const next = s.find((r) => nowMs < r.tStart);
+          if (next) {
             console.info(
-              '[Mikoshi] いまは表示ウィンドウの前です。先頭区間の開始（startGate）以降にレイヤーが表示されます。'
+              '[Mikoshi] 次の区間開始まで非表示。次区間:',
+              next.feature.properties?.segment_id,
+              '開始=',
+              new Date(next.tStart).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
             );
           } else {
-            console.info('[Mikoshi] いまは表示ウィンドウの後です（最終区間終了時刻を過ぎています）。');
+            console.info('[Mikoshi] 全区間終了。レイヤーは非表示です。');
           }
         } else if (!layerOn) {
           console.info('[Mikoshi] スケジュール内ですが、レイヤーパネルで「神輿ルート」が OFF です。');
