@@ -18,10 +18,13 @@ VS Code の **Live Server** で `index.html` を開いてもよい。
 | ファイル | 説明 |
 |----------|------|
 | `index.html` | アプリ本体（単一 HTML・ビルド不要） |
-| `shimodamap.png` | **現在使用中**のイラストマップ画像（`CONFIG.MAP_IMAGE.url` と一致） |
-| `shimodamap.wld` | 上記ラスタのワールドファイル（EPSG:6676）。ブラウザは読まないが、画像差し替え時に四隅座標を再計算する際に利用 |
+| `config.js` | **エリア設定**（MAP_IMAGE・COLS・TRANSLATIONS 等）。新エリアはここを編集 |
+| `config.example.js` | 新エリア用テンプレート（**コミットする**） |
+| `config.local.js` | ローカル上書き（**コミットしない**）。latOffset 等の微調整用 |
+| `100.png` / `100_sunset.png` / `100_nihgt.png` | イラスト地図（昼/夕/夜）。`config.js` の `MAP_IMAGE` と一致 |
+| `100.wld` | ワールドファイル（EPSG:6676）。四隅座標換算用（ブラウザは読まない） |
 | `secrets.example.js` | サンプル（**コミットする**）。`secrets.local.js` として複製して編集 |
-| `secrets.local.js` | Mapbox トークン・`SHEET_ID`（**コミットしない**）。`index.html` が先に読み込む |
+| `secrets.local.js` | Mapbox トークン・`SHEET_ID`（**コミットしない**） |
 | `gas-line-webhook.js` | GAS 用テンプレート（**プレースホルダのみ**コミット）。LINE シークレットは GAS 側で設定 |
 | [LINE_INTEGRATION.md](LINE_INTEGRATION.md) | LINE 連携の現状仕様（ユーザー識別・投稿フロー・シート列・フロントとの契約） |
 | `gas-line-webhook.local.js` | 任意：ローカルに実値入りの全文を保存して GAS へ貼り付け用（**コミットしない**） |
@@ -34,9 +37,10 @@ VS Code の **Live Server** で `index.html` を開いてもよい。
 ## 初期設定
 
 1. `secrets.example.js` を `secrets.local.js` にコピーし、`MAPBOX_TOKEN` と `SHEET_ID` を設定する。  
-2. `index.html` 内の `CONFIG` で `MAP_IMAGE`・ポーリング等を必要に応じて編集する。
+2. 新エリアの場合: `config.example.js` を `config.js` にコピーし、`MAP_IMAGE`・`TRANSLATIONS` 等を編集する。  
+3. 画像差し替え時は `MAP_IMAGE.cacheVersion` を更新する（ブラウザキャッシュ対策）。
 
-列の対応関係は **`index.html` の `CONFIG.COLS`** を正とする。詳細な運用仕様は開発者がローカルで保持する `docs/`（Git 対象外）を参照。
+列の対応関係は **`config.js` の `COLS`** を正とする。詳細な運用仕様はローカルの `docs/`（Git 対象外）を参照。
 
 ---
 
@@ -56,6 +60,7 @@ VS Code の **Live Server** で `index.html` を開いてもよい。
 ## 画像の差し替え
 
 1. TIFF を出力する場合は PNG に変換し（ブラウザは TIFF を直接読み込めないことが多い）、**`-co WORLDFILE=YES`** などで **`.wld` または `.pgw`** を生成する  
-2. `shimodamap.png`（または別名）をこのフォルダに置き、`CONFIG.MAP_IMAGE.url` と一致させる  
-3. ワールドファイルから四隅を **WGS84（経度・緯度）** に換算し、`CONFIG.MAP_IMAGE.coordinates`・`center`・`maxBounds` を更新する（`.wld` はアプリが読むわけではない）  
-4. ピンと画像のずれは `latOffset` / `lngOffset`（度単位）で微調整可能  
+2. PNG をこのフォルダに置き、`config.js` の `MAP_IMAGE.url`（および sunset/night）と一致させる  
+3. ワールドファイルから四隅を **WGS84（経度・緯度）** に換算し、`config.js` の `MAP_IMAGE.coordinates`・`center`・`maxBounds` を更新する  
+4. **`MAP_IMAGE.cacheVersion` を更新**（例: `20260603-v2`）  
+5. ピンと画像のずれは `latOffset` / `lngOffset`（度単位）で微調整可能  

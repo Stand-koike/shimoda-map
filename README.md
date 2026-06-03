@@ -21,8 +21,8 @@ Google スプレッドシートをデータソースに、**イラスト地図**
 
 1. **`web/secrets.example.js` を `web/secrets.local.js` にコピー**し、`MAPBOX_TOKEN`（Mapbox 公開トークン `pk.*`）と `SHEET_ID`（スプレッドシート ID）を入れる。  
 2. スプレッドシートは **「リンクを知っている全員が閲覧可」** 等、ブラウザから gviz で読める公開設定にする。  
-3. 列の意味と列順は **`web/index.html` 内の `CONFIG.COLS`** を正とする（0 始まりインデックス）。  
-4. イラスト画像・`MAP_IMAGE` の四隅座標などは同じく `CONFIG` で調整。
+3. 列の意味と列順は **`web/config.js` 内の `COLS`** を正とする（0 始まりインデックス）。  
+4. イラスト画像・`MAP_IMAGE` の四隅座標などは **`web/config.js`** で調整。
 
 ### LIVE 投稿（黒船祭マップ運用）
 

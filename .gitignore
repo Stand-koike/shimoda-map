@@ -12,5 +12,6 @@ docs/
 # ローカル秘密設定
 web/secrets.local.js
 web/gas-line-webhook.local.js
+web/config.local.js
 .env
 .env.*
