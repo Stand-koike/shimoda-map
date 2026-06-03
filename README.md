@@ -9,11 +9,12 @@ Google スプレッドシートをデータソースに、**イラスト地図**
 
 | パス | 内容 |
 |------|------|
-| **`web/`** | 本番相当の静的ファイル（`index.html`・画像・`secrets.example.js`・GAS 用テンプレ `gas-line-webhook.js`） |
+| **`web/`** | 本番相当の静的ファイル（`index.html`・画像・`config.js`・`secrets.example.js` 等） |
+| **`clients/`** | 案件ごとの素材正本（`_template/`・`shimoda/`・`sotoura/` 等） |
 | **`README.md`** | 本ファイル |
 | **`SECURITY.md`** | 秘密情報の扱い（GitHub セキュリティポリシー用の簡易版） |
 
-**チーム内の設計書・スプレッドシート列の詳細は `docs/` に置き、Git には含めません**（`.gitignore` 済み）。一覧は `docs/README.md`。
+**チーム内の設計書**は `docs/` に置き、Git には含めません（`.gitignore` 済み）。**案件素材の索引**は [clients/README.md](clients/README.md)。
 
 ---
 

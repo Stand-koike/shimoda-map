@@ -1,0 +1,31 @@
+{
+  "crs": "EPSG:4326",
+  "client": "shimoda",
+  "displayName": "下田",
+  "corners": {
+    "NW": [138.9371389, 34.6812813],
+    "NE": [138.9587739, 34.6812018],
+    "SE": [138.9587002, 34.6678289],
+    "SW": [138.9370686, 34.6679084]
+  },
+  "coordinates": [
+    [138.9371389, 34.6812813],
+    [138.9587739, 34.6812018],
+    [138.9587002, 34.6678289],
+    [138.9370686, 34.6679084]
+  ],
+  "center": [138.9479213, 34.6745551],
+  "maxBounds": [[138.924, 34.654], [138.972, 34.694]],
+  "initZoom": 15.6,
+  "bearing": -90,
+  "pitch": 45,
+  "wldSource": "100.wld",
+  "wldCrs": "EPSG:6676",
+  "webFiles": {
+    "day": "100.png",
+    "sunset": "100_sunset.png",
+    "night": "100_nihgt.png"
+  },
+  "configCacheVersion": "20260603-shimoda",
+  "notes": "web/config.js MAP_IMAGE と同期。座標は 100.wld + pyproj で換算済み"
+}
