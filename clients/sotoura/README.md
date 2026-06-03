@@ -1,34 +1,25 @@
-# 案件テンプレート
+# 外浦（sotoura）— 参照用（本リポ）
 
-新規クライアント案件はこのフォルダをコピーして `{slug}/` を作成する。
+| 項目 | 値 |
+|------|-----|
+| **本番リポ** | [**Stand-koike/sotoura-map**](https://github.com/Stand-koike/sotoura-map) |
+| ローカル clone | `Stand/01.案件/外浦MAP/` |
+| 本リポの役割 | `production/` の座標・`.pgw` 記録（**`web/` は下田のまま触らない**） |
 
-```powershell
-# 例: 外浦 → clients/sotoura/
-Copy-Item -Recurse clients\_template clients\sotoura
-```
+外浦の `web/` 反映・Pages 公開・Cursor 作業は **sotoura-map リポのみ** で行ってください。
 
-## チェックリスト
+## 素材（同期の目安）
 
-```
-[ ] README.md に案件名・slug・ステータスを記入
-[ ] source/map/ にクライアント受領データ（tif/psd 等）を保存
-[ ] production/ に確定 PNG + 同名 .wld をペアで配置
-[ ] production/coordinates.json を作成（WGS84 四隅）
-[ ] geo/ に神輿 GeoJSON（必要な場合）
-[ ] ops/ にスプレッドシート URL・納品メモ（Git 除外）
-[ ] production/* を web/ にコピー
-[ ] web/config.js を更新
-[ ] secrets.local.js に SHEET_ID を設定
-[ ] localhost で動作確認
-```
+| ファイル | 備考 |
+|----------|------|
+| `production/300.pgw` | Git 管理 |
+| `production/coordinates.json` | `sotoura-map` の `web/config.js` と同期 |
+| `production/300.png` | gitignore → `sotoura-map` の `web/300.png` にコピー |
 
-## フォルダ役割
+初回セットアップ: [sotoura-map の SETUP_GITHUB.md](https://github.com/Stand-koike/sotoura-map/blob/main/SETUP_GITHUB.md)（リポ作成後）
 
-| フォルダ | Git | 用途 |
-|----------|-----|------|
-| `source/` | 除外 | クライアントから受け取った生データ |
-| `production/` | PNG/TIF 除外 | 確定版イラスト + .wld + coordinates.json |
-| `geo/` | 可 | 神輿ルート GeoJSON の正本 |
-| `ops/` | 除外 | 運用メモ・シート URL |
+## 履歴
+
+- `area/sotoura` ブランチ … 単一リポでの試行。**アーカイブ**（本番は `sotoura-map` へ移行）
 
 詳細: [production/README.md](production/README.md)

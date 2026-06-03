@@ -16,6 +16,15 @@ Google スプレッドシートをデータソースに、**イラスト地図**
 
 **チーム内の設計書**は `docs/` に置き、Git には含めません（`.gitignore` 済み）。**案件素材の索引**は [clients/README.md](clients/README.md)。
 
+**外浦マップ**は別リポ [**sotoura-map**](https://github.com/Stand-koike/sotoura-map)（ローカル `外浦MAP/`）。本リポの Pages（下田）は変更しません。
+
+### Cursor で作業を始めるとき（下田）
+
+1. **下田MAP** フォルダだけを Workspace で開く（`01.案件` 親フォルダは開かない）
+2. `git branch` → **`main`**
+3. [`web/config.js`](web/config.js) → `APP_TITLE: '下田マップ'`
+4. [`.cursor/rules/project.md`](.cursor/rules/project.md) を参照
+
 ---
 
 ## セットアップ（クローン後）

@@ -1,44 +1,51 @@
 # clients/ — 案件素材・設定の置き場
 
-デジタルマップの **クライアント案件ごと** に素材とメモを整理する。
+**このリポジトリ（shimoda-map）** は **下田本番** 専用です。`web/` は下田のみデプロイします。
 
-## ルール
+## 2リポ構成
+
+| リポ | `web/` | `clients/` | GitHub Pages |
+|------|--------|------------|--------------|
+| [shimoda-map](https://github.com/Stand-koike/shimoda-map)（本リポ） | 下田（`100.png` 系） | `shimoda/`, `_template/` | 既存 URL（変更しない） |
+| [sotoura-map](https://github.com/Stand-koike/sotoura-map) | 外浦（`300.png`） | `sotoura/` のみ | 別 URL |
+
+外浦の作業・公開は **`外浦MAP/` ローカル clone（sotoura-map）** で行う。本リポの `clients/sotoura/` は参照用のコピー（座標・pgw の記録）。
+
+## ルール（下田）
 
 | パス | 役割 |
 |------|------|
-| [`web/`](web/) | **今デプロイ中**のサイト（GitHub Pages） |
-| `clients/{slug}/` | 案件ごとの素材正本 |
-| `clients/_template/` | 新規案件用テンプレート |
+| [`web/`](../web/) | **下田**のデプロイ正本 |
+| `clients/shimoda/` | 下田素材正本 |
+| `clients/_template/` | 新規案件テンプレート |
 
-**素材の流れ**: `clients/{slug}/production/` →（コピー）→ `web/` → デプロイ
+**素材の流れ**: `clients/shimoda/production/` → `web/` → push `main` → Pages
 
 ## 案件一覧
 
-| slug | 案件名 | ステータス | 備考 |
-|------|--------|------------|------|
-| `shimoda` | 下田 | 本番運用中 | 現行 `web/` は下田設定 |
-| `sotoura` | 外浦 | 素材待ち | 新規案件 |
+| slug | 案件名 | 公開 |
+|------|--------|------|
+| `shimoda` | 下田 | 本リポ `main` → Pages |
+| `sotoura` | 外浦 | [**sotoura-map** リポ](https://github.com/Stand-koike/sotoura-map) |
 
-## 新規案件の作り方
+## Cursor で作業を始めるとき（下田）
 
-```powershell
-Copy-Item -Recurse clients\_template clients\{slug}
-# clients/{slug}/README.md を編集
-# production/ に PNG + .wld を配置
-```
-
-## 共通ワークフロー
-
-1. **受領** — `source/map/` に tif/psd 等を保存
-2. **確定** — `production/` に PNG + 同名 `.wld` をペア配置
-3. **座標** — `.wld` から `coordinates.json` を作成
-4. **反映** — `production/*` を `web/` にコピー、`config.js` 更新
-5. **データ** — スプレッドシート + `secrets.local.js`
-6. **確認** — `python -m http.server 8080`（`web/` で）
-7. **公開** — commit & push
-
-PNG + WLD の詳細: [`_template/production/README.md`](_template/production/README.md)
+1. **下田MAP** フォルダ（本リポ）だけを Workspace で開く
+2. `git branch` → **`main`**
+3. `web/config.js` → `APP_TITLE: '下田マップ'`
+4. 詳細: [`.cursor/rules/project.md`](../.cursor/rules/project.md)
 
 Agent 依頼例:
 
-> `clients/sotoura/production/` に PNG3枚と wld を置いた。座標換算と config 更新、web への反映をお願い
+```
+【案件】下田 / リポ shimoda-map / main
+【触らない】sotoura-map、外浦の 300.png
+```
+
+## 新規案件
+
+```powershell
+Copy-Item -Recurse clients\_template clients\{slug}
+```
+
+外浦のように **別 Pages が必要な案件** は、素材確定後に **専用リポ** を切る（`sotoura-map` を参照）。
