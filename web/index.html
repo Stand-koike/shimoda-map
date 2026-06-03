@@ -2662,6 +2662,9 @@ const MapModule = {
      */
     _addIllustrationMap() {
         const cfg = CONFIG.MAP_IMAGE;
+        if (cfg.dayOnly || !cfg.urlSunset || !cfg.urlNight) {
+            return this._addIllustrationMapDayFallback();
+        }
         const dayUrl = cfg.urlDay || cfg.url;
         const sunsetUrl = cfg.urlSunset;
         const nightUrl = cfg.urlNight;

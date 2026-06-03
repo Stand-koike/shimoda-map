@@ -1,14 +1,11 @@
 /**
- * エリア設定 — 下田MAP（本番値）
+ * エリア設定 — 外浦マップ（area/sotoura ブランチ）
  *
- * 新エリア展開時:
- *   1. config.example.js をコピーしてこのファイルを編集
- *   2. MAP_IMAGE（画像パス・四隅座標）と TRANSLATIONS を更新
- *   3. 画像差し替え時は MAP_IMAGE.cacheVersion を更新（ブラウザキャッシュ対策）
+ * main / 下田本番 Pages とは別ブランチ。下田に戻す場合は main の config.js を参照。
  *
  * ローカル上書き: config.local.js（Git 除外）で MAP_IMAGE.latOffset 等を微調整可
  *
- * @see docs/AREA_MIGRATION_GUIDE.md（ローカル docs/）
+ * @see clients/sotoura/production/coordinates.json
  */
 (function () {
     'use strict';
@@ -18,16 +15,14 @@
         : {};
 
     window.__SHIMODA_MAP_CONFIG__ = {
-        /** ブラウザタブタイトル */
-        APP_TITLE: '下田マップ',
+        APP_TITLE: '外浦マップ',
 
-        /** GA4 測定 ID（不要なら空文字） */
+        /** GA4 測定 ID（下田と同値・外浦専用は後日） */
         GA_MEASUREMENT_ID: 'G-XW0F1B5T6E',
 
         MAPBOX_TOKEN: secrets.MAPBOX_TOKEN || 'pk.YOUR_MAPBOX_TOKEN',
         SHEET_ID:     secrets.SHEET_ID     || 'YOUR_GOOGLE_SHEET_ID',
 
-        // Google Sheets 列マッピング (0-index) — シート列順と一致させる
         COLS: {
             NAME: 1, LAT: 2, LNG: 3, EMOJI: 4, URL: 5, DESC: 6,
             CAT: 7, HIDDEN: 8,
@@ -42,17 +37,14 @@
         COLORS: { DEFAULT: '#0096C7', RED: '#FF5252', YELLOW: '#FFCA28' },
 
         // ----------------------------------------------------------------
-        // イラストマップ地理参照（100.png / 100.wld, EPSG:6676）
-        //   ラスタサイズ 2280×1706 px。四隅は wld と pyproj で 4326 に変換した値。
-        //   ズレ調整: latOffset / lngOffset（度）
-        //   画像差し替え時: cacheVersion を必ず更新
+        // イラストマップ（300.png / 300.pgw, EPSG:6676）— 昼 1 枚のみ
         // ----------------------------------------------------------------
         MAP_IMAGE: {
-            url:        '100.png',
-            urlSunset:  '100_sunset.png',
-            urlNight:   '100_nihgt.png',
-            /** ブラウザキャッシュ bust。PNG 差し替え時に YYYYMMDD 等へ更新 */
-            cacheVersion: '20260603-shimoda',
+            url:        '300.png',
+            dayOnly:    true,
+            urlSunset:  null,
+            urlNight:   null,
+            cacheVersion: '20260603-sotoura',
             solarLat:   null,
             solarLng:   null,
             timezone:   'Asia/Tokyo',
@@ -60,18 +52,18 @@
             duskBand:   'nautical',
 
             coordinates: [
-                [138.9371389, 34.6812813],
-                [138.9587739, 34.6812018],
-                [138.9587002, 34.6678289],
-                [138.9370686, 34.6679084]
+                [138.9681121, 34.6779157],
+                [138.9769292, 34.6778815],
+                [138.9768828, 34.6697785],
+                [138.9680665, 34.6698127]
             ],
             latOffset:  0,
             lngOffset:  0,
-            center:    [138.9479213, 34.6745551],
-            initZoom:  15.6,
-            minZoom:   13,
+            center:    [138.9724978, 34.6738471],
+            initZoom:  16.8,
+            minZoom:   14,
             maxZoom:   19,
-            maxBounds: [[138.924, 34.654], [138.972, 34.694]],
+            maxBounds: [[138.9676234, 34.6693717], [138.9773723, 34.6783225]],
             bearing:   -90,
             pitch:     45
         },
