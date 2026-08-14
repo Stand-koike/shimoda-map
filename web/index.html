@@ -1358,44 +1358,96 @@
         .modal-live-video {
             cursor: default; background: #000; max-height: 240px; object-fit: contain;
         }
-        /* Drive preview iframe — ツールバーをクロップして動画本体だけ見せる */
+        /* 縦長（9:16）カード。Drive UI は拡大クロップで隠す */
         .live-video-frame {
             position: relative;
             overflow: hidden;
-            border-radius: 8px;
-            background: #000;
+            border-radius: 12px;
+            background: #111;
             box-sizing: border-box;
-            margin-top: 8px;
+            margin: 8px auto 0;
         }
         .live-video-frame--popup {
-            width: min(280px, calc(100vw - 56px));
-            height: 158px;
+            width: 168px;
+            height: 298px;
         }
         .live-video-frame--modal {
-            width: 100%;
-            height: 0;
-            padding-bottom: 56.25%;
-            margin-bottom: 8px;
+            width: min(220px, 100%);
+            height: min(391px, 58vh);
+            margin: 8px auto 10px;
         }
+        .live-video-poster {
+            position: absolute;
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+            z-index: 1;
+            background: #111;
+        }
+        .live-video-slot {
+            position: absolute;
+            inset: 0;
+            overflow: hidden;
+            z-index: 0;
+        }
+        .live-video-slot iframe,
         .live-video-frame iframe.live-drive-preview {
             position: absolute;
-            left: 0;
-            width: 100%;
+            top: 50%;
+            left: 50%;
+            width: 185%;
+            height: 185%;
+            transform: translate(-50%, -50%);
             border: 0;
             pointer-events: auto;
         }
-        .live-video-frame--popup iframe.live-drive-preview {
-            top: -42px;
-            height: calc(100% + 42px);
+        .live-video-play-btn,
+        .live-video-ended {
+            position: absolute;
+            z-index: 2;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            border: 0;
+            background: transparent;
+            color: #fff;
+            cursor: pointer;
+            padding: 0;
         }
-        .live-video-frame--modal iframe.live-drive-preview {
-            top: -48px;
-            height: calc(100% + 48px);
+        .live-video-play-btn[hidden],
+        .live-video-ended[hidden] { display: none !important; }
+        .live-video-play-btn .live-video-play-icon {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.45);
+            box-shadow: 0 0 0 2px rgba(255,255,255,0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            padding-left: 3px;
+        }
+        .live-video-ended {
+            background: rgba(0, 0, 0, 0.38);
+            font-size: 12px;
+            font-weight: bold;
+            text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+        }
+        .live-video-hint {
+            font-size: 10px;
+            color: #fff;
+            opacity: 0.9;
         }
         .mapboxgl-popup.live-video-popup .mapboxgl-popup-content {
-            padding: 12px 14px 14px;
-            min-width: min(300px, calc(100vw - 40px));
-            max-width: min(320px, calc(100vw - 32px));
+            padding: 12px 12px 14px;
+            min-width: 196px;
+            max-width: min(228px, calc(100vw - 28px));
             overflow: hidden;
             box-sizing: border-box;
         }
@@ -1428,29 +1480,22 @@
             max-width: 95vw; max-height: 90vh;
             border-radius: 8px; background: #000;
         }
-        .lightbox-drive-video {
-            width: min(95vw, 720px);
-            height: min(56vw, 405px);
-            max-height: 70vh;
-            border: 0;
-            border-radius: 8px;
-            background: #000;
-        }
         .lightbox-drive-video-wrap {
             position: relative;
-            width: min(95vw, 720px);
-            height: min(56vw, 405px);
-            max-height: 70vh;
+            width: min(72vw, 280px);
+            height: min(128vw, 498px);
+            max-height: 78vh;
             overflow: hidden;
-            border-radius: 8px;
-            background: #000;
+            border-radius: 12px;
+            background: #111;
         }
         .lightbox-drive-video-wrap iframe {
             position: absolute;
-            left: 0;
-            top: -52px;
-            width: 100%;
-            height: calc(100% + 52px);
+            top: 50%;
+            left: 50%;
+            width: 185%;
+            height: 185%;
+            transform: translate(-50%, -50%);
             border: 0;
         }
         .mapboxgl-popup-content iframe.live-drive-preview,
@@ -1895,27 +1940,117 @@ function extractLiveVideoFileId_(lp) {
     return extractDriveFileId_(v) || '';
 }
 
-function liveDrivePreviewIframeHtml_(fileId, variant) {
-    const id = encodeURIComponent(String(fileId || ''));
-    const v = variant === 'modal' ? 'modal' : 'popup';
-    const wrapCls = v === 'modal' ? 'live-video-frame live-video-frame--modal' : 'live-video-frame live-video-frame--popup';
-    return `<div class="${wrapCls}">` +
-        `<iframe class="live-drive-preview" src="https://drive.google.com/file/d/${id}/preview" ` +
-        `allow="autoplay; encrypted-media; fullscreen" loading="lazy" referrerpolicy="no-referrer"></iframe>` +
+function liveDrivePreviewIframeHtml_(fileId, variant, posterUrl) {
+    const id = String(fileId || '').replace(/"/g, '');
+    const wrapCls = variant === 'modal'
+        ? 'live-video-frame live-video-frame--modal'
+        : 'live-video-frame live-video-frame--popup';
+    const poster = posterUrl ? escapeHtml(posterUrl) : '';
+    const posterTag = poster
+        ? `<img class="live-video-poster" src="${poster}" alt="">`
+        : `<div class="live-video-poster" style="background:#1a1a1a"></div>`;
+    return `<div class="${wrapCls}" data-live-clip="1" data-file-id="${escapeHtml(id)}" data-poster="${poster}">` +
+        posterTag +
+        `<div class="live-video-slot"></div>` +
+        `<button type="button" class="live-video-play-btn" aria-label="再生">` +
+        `<span class="live-video-play-icon">▶</span>` +
+        `<span class="live-video-hint">先頭${LIVE_VIDEO_PLAY_SECONDS}秒</span>` +
+        `</button>` +
+        `<button type="button" class="live-video-ended" hidden>` +
+        `<span>先頭${LIVE_VIDEO_PLAY_SECONDS}秒まで</span>` +
+        `<span class="live-video-hint">もう一度再生</span>` +
+        `</button>` +
         `</div>`;
+}
+
+function stopLiveVideoClip_(frame) {
+    if (!frame) return;
+    if (frame._clipTimer) {
+        clearTimeout(frame._clipTimer);
+        frame._clipTimer = 0;
+    }
+    const slot = frame.querySelector('.live-video-slot');
+    if (slot) slot.innerHTML = '';
+    const poster = frame.querySelector('.live-video-poster');
+    if (poster) poster.style.opacity = '1';
+    const playBtn = frame.querySelector('.live-video-play-btn');
+    const ended = frame.querySelector('.live-video-ended');
+    if (playBtn) playBtn.hidden = false;
+    if (ended) ended.hidden = true;
+    frame.classList.remove('is-playing');
+}
+
+function finishLiveVideoClip_(frame) {
+    if (!frame) return;
+    const slot = frame.querySelector('.live-video-slot');
+    if (slot) slot.innerHTML = '';
+    const poster = frame.querySelector('.live-video-poster');
+    if (poster) poster.style.opacity = '1';
+    const playBtn = frame.querySelector('.live-video-play-btn');
+    const ended = frame.querySelector('.live-video-ended');
+    if (playBtn) playBtn.hidden = true;
+    if (ended) ended.hidden = false;
+    frame.classList.remove('is-playing');
+}
+
+function startLiveVideoClip_(frame) {
+    if (!frame) return;
+    const fileId = frame.getAttribute('data-file-id') || '';
+    if (!fileId) return;
+    const slot = frame.querySelector('.live-video-slot');
+    const playBtn = frame.querySelector('.live-video-play-btn');
+    const ended = frame.querySelector('.live-video-ended');
+    const poster = frame.querySelector('.live-video-poster');
+    if (playBtn) playBtn.hidden = true;
+    if (ended) ended.hidden = true;
+    if (poster) poster.style.opacity = '0';
+    frame.classList.add('is-playing');
+    if (slot) {
+        slot.innerHTML = `<iframe class="live-drive-preview" src="https://drive.google.com/file/d/${encodeURIComponent(fileId)}/preview" allow="autoplay; encrypted-media" referrerpolicy="no-referrer"></iframe>`;
+    }
+    if (frame._clipTimer) clearTimeout(frame._clipTimer);
+    frame._clipTimer = setTimeout(() => {
+        finishLiveVideoClip_(frame);
+    }, (LIVE_VIDEO_PLAY_SECONDS * 1000) + 700);
+}
+
+function bindLiveVideoClipPlayer_(root) {
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll('[data-live-clip]').forEach((frame) => {
+        if (frame.dataset.bound) return;
+        frame.dataset.bound = '1';
+        const playBtn = frame.querySelector('.live-video-play-btn');
+        const ended = frame.querySelector('.live-video-ended');
+        if (playBtn) {
+            playBtn.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                startLiveVideoClip_(frame);
+            });
+        }
+        if (ended) {
+            ended.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                startLiveVideoClip_(frame);
+            });
+        }
+    });
 }
 
 window.__liveVideoIframeFallback = function(videoEl, fileId) {
     if (!videoEl || !fileId || videoEl.dataset.fbf) return;
     videoEl.dataset.fbf = '1';
     const wrap = document.createElement('div');
-    wrap.innerHTML = liveDrivePreviewIframeHtml_(fileId, videoEl.classList.contains('modal-live-video') ? 'modal' : 'popup');
+    wrap.innerHTML = liveDrivePreviewIframeHtml_(
+        fileId,
+        videoEl.classList.contains('modal-live-video') ? 'modal' : 'popup',
+        videoEl.getAttribute('poster') || ''
+    );
     const frame = wrap.firstElementChild;
     if (!frame) return;
-    if (videoEl.classList.contains('modal-live-video')) {
-        frame.querySelector('iframe')?.addEventListener('click', (e) => e.stopPropagation());
-    }
     videoEl.replaceWith(frame);
+    bindLiveVideoClipPlayer_(frame.parentNode || frame);
 };
 
 function resolveLiveVideoPlayUrl_(lp) {
@@ -1979,7 +2114,7 @@ function livePopupMediaHtml(lp) {
     const resolved = resolveLiveVideoPlayUrl_(lp);
     const { playUrl, fileId } = resolved;
     if (fileId) {
-        return liveDrivePreviewIframeHtml_(fileId, 'popup');
+        return liveDrivePreviewIframeHtml_(fileId, 'popup', thumb);
     }
     if (playUrl) {
         const poster = thumb ? ` poster="${escapeHtml(thumb)}"` : '';
@@ -1996,7 +2131,7 @@ function liveModalMediaHtml(lp) {
     const resolved = resolveLiveVideoPlayUrl_(lp);
     const { playUrl, fileId } = resolved;
     if (fileId) {
-        return liveDrivePreviewIframeHtml_(fileId, 'modal');
+        return liveDrivePreviewIframeHtml_(fileId, 'modal', thumb);
     }
     if (playUrl) {
         const poster = thumb ? ` poster="${escapeHtml(thumb)}"` : '';
@@ -3514,9 +3649,18 @@ const UIModule = {
                 .setPopup(new mapboxgl.Popup({
                     offset: 28,
                     className: hasVideo ? 'live-video-popup' : '',
-                    maxWidth: hasVideo ? '320px' : '240px'
+                    maxWidth: hasVideo ? '228px' : '240px'
                 }).setHTML(popupHtml))
                 .addTo(MapModule._map);
+
+            marker.getPopup().on('open', () => {
+                const popEl = marker.getPopup().getElement();
+                bindLiveVideoClipPlayer_(popEl);
+            });
+            marker.getPopup().on('close', () => {
+                const popEl = marker.getPopup().getElement();
+                if (popEl) popEl.querySelectorAll('[data-live-clip]').forEach(stopLiveVideoClip_);
+            });
 
             State.liveMarkers.push(marker);
         });
@@ -4037,6 +4181,7 @@ const UIModule = {
                 ${imgHtml}
                 ${safeMsg ? `<div class="modal-live-message">${safeMsg}</div>` : ''}`;
             livePostEl.style.display = 'block';
+            bindLiveVideoClipPlayer_(livePostEl);
         } else {
             livePostEl.style.display = 'none';
             livePostEl.innerHTML = '';
@@ -4155,14 +4300,17 @@ const UIModule = {
             }
             const wrap = document.createElement('div');
             wrap.className = 'lightbox-drive-video-wrap';
-            const iframe = document.createElement('iframe');
-            iframe.className = 'lightbox-drive-video';
-            iframe.src = 'https://drive.google.com/file/d/' + encodeURIComponent(fileId) + '/preview';
-            iframe.allow = 'autoplay; encrypted-media; fullscreen';
-            iframe.referrerPolicy = 'no-referrer';
-            iframe.onclick = (e) => e.stopPropagation();
-            wrap.appendChild(iframe);
+            wrap.innerHTML = liveDrivePreviewIframeHtml_(fileId, 'modal', url || '');
+            const inner = wrap.querySelector('[data-live-clip]');
+            if (inner) {
+                inner.classList.remove('live-video-frame--modal', 'live-video-frame--popup');
+                inner.style.width = '100%';
+                inner.style.height = '100%';
+                inner.style.margin = '0';
+            }
+            wrap.onclick = (e) => e.stopPropagation();
             overlay.appendChild(wrap);
+            bindLiveVideoClipPlayer_(wrap);
         } else if (playUrl && vid) {
             if (img) {
                 img.src = '';
@@ -4193,6 +4341,7 @@ const UIModule = {
         const vid = document.getElementById('lightbox-video');
         if (overlay) {
             overlay.classList.remove('open');
+            overlay.querySelectorAll('[data-live-clip]').forEach(stopLiveVideoClip_);
             overlay.querySelectorAll('.lightbox-drive-video-wrap').forEach(el => el.remove());
         }
         if (img) img.src = '';
