@@ -1941,7 +1941,21 @@ function parseLiveMediaFromRaw(raw) {
     };
 }
 
-/** GAS ウェブアプリ（LIVE_VIDEO_PROXY_BASE）で先頭3秒クリップを再生する */
+/** GAS ウェブアプリから JSONP で先頭クリップを取る */
+function buildLiveVideoClipJsonpUrl_(fileId, callbackName) {
+    const id = String(fileId || '').trim();
+    if (!id) return '';
+    let base = '';
+    try {
+        base = String((CONFIG && CONFIG.LIVE_VIDEO_PROXY_BASE) || '').trim();
+    } catch (_) { /* ignore */ }
+    if (!base) return '';
+    base = base.replace(/\/$/, '');
+    const join = base.indexOf('?') >= 0 ? '&' : '?';
+    return base + join + 'action=clip&id=' + encodeURIComponent(id) +
+        '&callback=' + encodeURIComponent(callbackName);
+}
+
 function buildLiveVideoProxyUrl_(fileId) {
     const id = String(fileId || '').trim();
     if (!id) return '';
@@ -1953,6 +1967,74 @@ function buildLiveVideoProxyUrl_(fileId) {
     base = base.replace(/\/$/, '');
     const join = base.indexOf('?') >= 0 ? '&' : '?';
     return base + join + 'action=video&id=' + encodeURIComponent(id);
+}
+
+const liveVideoClipCache_ = new Map();
+let liveVideoJsonpSeq_ = 0;
+
+function liveVideoB64ToBlobUrl_(b64) {
+    const bin = atob(b64);
+    const arr = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+    return URL.createObjectURL(new Blob([arr], { type: 'video/mp4' }));
+}
+
+function fetchLiveVideoClipBlobUrl_(fileId) {
+    const id = String(fileId || '').trim();
+    if (!id) return Promise.reject(new Error('no file id'));
+    const cached = liveVideoClipCache_.get(id);
+    if (cached) {
+        if (cached.blobUrl) return Promise.resolve(cached.blobUrl);
+        return cached.promise;
+    }
+    const entry = { blobUrl: '', promise: null };
+    entry.promise = new Promise((resolve, reject) => {
+        const cb = '__liveVideoClipCb' + String(++liveVideoJsonpSeq_);
+        const url = buildLiveVideoClipJsonpUrl_(id, cb);
+        if (!url) {
+            reject(new Error('no proxy'));
+            return;
+        }
+        let settled = false;
+        const script = document.createElement('script');
+        const done = (err, blobUrl) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            try { delete window[cb]; } catch (_) { /* ignore */ }
+            if (script.parentNode) script.parentNode.removeChild(script);
+            if (err) {
+                liveVideoClipCache_.delete(id);
+                reject(err);
+            } else {
+                entry.blobUrl = blobUrl;
+                resolve(blobUrl);
+            }
+        };
+        const timeout = setTimeout(() => done(new Error('timeout')), 25000);
+        window[cb] = (payload) => {
+            try {
+                if (!payload || !payload.ok || !payload.b64) {
+                    done(new Error((payload && payload.error) || 'clip failed'));
+                    return;
+                }
+                done(null, liveVideoB64ToBlobUrl_(payload.b64));
+            } catch (err) {
+                done(err);
+            }
+        };
+        script.async = true;
+        script.src = url;
+        script.onerror = () => done(new Error('jsonp load failed'));
+        document.head.appendChild(script);
+    });
+    liveVideoClipCache_.set(id, entry);
+    return entry.promise;
+}
+
+function prefetchLiveVideoClip_(fileId) {
+    if (!fileId) return;
+    fetchLiveVideoClipBlobUrl_(fileId).catch(() => { /* ignore */ });
 }
 
 function cleanupLiveVideoClipMedia_(frame) {
@@ -2050,56 +2132,93 @@ function finishLiveVideoClip_(frame) {
 function startLiveVideoClip_(frame) {
     if (!frame) return;
     const fileId = frame.getAttribute('data-file-id') || '';
-    const proxyUrl = buildLiveVideoProxyUrl_(fileId);
-    if (!fileId || !proxyUrl) return;
-    if (frame.classList.contains('is-loading') || frame.classList.contains('is-playing')) return;
+    if (!fileId) return;
+    if (frame.classList.contains('is-loading')) return;
+
+    const cached = liveVideoClipCache_.get(fileId);
+    if (cached && cached.blobUrl) {
+        mountAndPlayLiveVideoClip_(frame, cached.blobUrl);
+        return;
+    }
 
     cleanupLiveVideoClipMedia_(frame);
+    const playBtn = frame.querySelector('.live-video-play-btn');
+    const ended = frame.querySelector('.live-video-ended');
+    const poster = frame.querySelector('.live-video-poster');
+    const hint = playBtn && playBtn.querySelector('.live-video-hint');
+    if (playBtn) playBtn.hidden = false;
+    if (ended) ended.hidden = true;
+    if (poster) poster.style.opacity = '1';
+    if (hint) hint.textContent = '読み込み中…';
+    frame.classList.remove('is-playing');
+    frame.classList.add('is-loading');
+
+    fetchLiveVideoClipBlobUrl_(fileId).then((blobUrl) => {
+        if (!frame.isConnected) return;
+        if (hint) hint.textContent = `先頭${LIVE_VIDEO_PLAY_SECONDS}秒`;
+        mountAndPlayLiveVideoClip_(frame, blobUrl);
+    }).catch(() => {
+        if (hint) hint.textContent = `先頭${LIVE_VIDEO_PLAY_SECONDS}秒`;
+        frame.classList.remove('is-loading');
+        stopLiveVideoClip_(frame);
+    });
+}
+
+function mountAndPlayLiveVideoClip_(frame, blobUrl) {
+    if (!frame || !blobUrl) return;
+    cleanupLiveVideoClipMedia_(frame);
+
     const slot = frame.querySelector('.live-video-slot');
     const playBtn = frame.querySelector('.live-video-play-btn');
     const ended = frame.querySelector('.live-video-ended');
     const poster = frame.querySelector('.live-video-poster');
-    if (playBtn) playBtn.hidden = false;
+    if (playBtn) playBtn.hidden = true;
     if (ended) ended.hidden = true;
-    if (poster) poster.style.opacity = '1';
-    frame.classList.remove('is-playing');
-    frame.classList.add('is-loading');
+    if (poster) poster.style.opacity = '0';
+    frame.classList.remove('is-loading');
+    frame.classList.add('is-playing');
 
-    const iframe = document.createElement('iframe');
-    iframe.className = 'live-clip-iframe';
-    iframe.setAttribute('allow', 'autoplay; encrypted-media');
-    iframe.setAttribute('referrerpolicy', 'no-referrer');
-    iframe.src = proxyUrl;
+    const video = document.createElement('video');
+    video.className = 'live-clip-video live-drive-video';
+    video.playsInline = true;
+    video.muted = true;
+    video.setAttribute('playsinline', '');
+    video.setAttribute('webkit-playsinline', '');
+    video.setAttribute('muted', '');
+    video.preload = 'auto';
+    video.src = blobUrl;
+    frame._clipVideo = video;
 
-    const onPlaying = () => {
-        if (playBtn) playBtn.hidden = true;
-        if (ended) ended.hidden = true;
-        if (poster) poster.style.opacity = '0';
-        frame.classList.remove('is-loading');
-        frame.classList.add('is-playing');
-        if (frame._clipTimer) clearTimeout(frame._clipTimer);
-        frame._clipTimer = setTimeout(() => finishLiveVideoClip_(frame), (LIVE_VIDEO_PLAY_SECONDS * 1000) + 500);
+    const onTick = () => {
+        if (video.currentTime >= LIVE_VIDEO_PLAY_SECONDS) finishLiveVideoClip_(frame);
     };
-
-    const onMsg = (e) => {
-        const d = e && e.data;
-        if (!d || d.source !== 'shimoda-live-video') return;
-        if (d.type === 'playing') onPlaying();
-        else if (d.type === 'ended') finishLiveVideoClip_(frame);
-        else if (d.type === 'error') stopLiveVideoClip_(frame);
-    };
-    frame._clipMsg = onMsg;
-    window.addEventListener('message', onMsg);
+    const onFail = () => stopLiveVideoClip_(frame);
+    frame._clipOnTick = onTick;
+    frame._clipOnEnd = onFail;
+    video.addEventListener('timeupdate', onTick);
+    video.addEventListener('ended', () => finishLiveVideoClip_(frame));
+    video.addEventListener('error', onFail, { once: true });
 
     if (slot) {
         slot.innerHTML = '';
-        slot.appendChild(iframe);
+        slot.appendChild(video);
     }
 
-    if (frame._clipTimer) clearTimeout(frame._clipTimer);
-    frame._clipTimer = setTimeout(() => {
-        if (frame.classList.contains('is-loading')) stopLiveVideoClip_(frame);
-    }, 20000);
+    const scheduleFinishTimer_ = () => {
+        if (frame._clipTimer) clearTimeout(frame._clipTimer);
+        frame._clipTimer = setTimeout(() => finishLiveVideoClip_(frame), (LIVE_VIDEO_PLAY_SECONDS * 1000) + 400);
+    };
+
+    const tryPlay = () => {
+        const p = video.play();
+        if (p && typeof p.then === 'function') {
+            p.then(() => scheduleFinishTimer_()).catch(() => stopLiveVideoClip_(frame));
+        } else {
+            scheduleFinishTimer_();
+        }
+    };
+    tryPlay();
+    if (video.paused) video.addEventListener('loadeddata', tryPlay, { once: true });
 }
 
 function bindLiveVideoClipPlayer_(root) {
@@ -2107,6 +2226,8 @@ function bindLiveVideoClipPlayer_(root) {
     root.querySelectorAll('[data-live-clip]').forEach((frame) => {
         if (frame.dataset.bound) return;
         frame.dataset.bound = '1';
+        const fileId = frame.getAttribute('data-file-id') || '';
+        if (fileId) prefetchLiveVideoClip_(fileId);
         const playBtn = frame.querySelector('.live-video-play-btn');
         const ended = frame.querySelector('.live-video-ended');
         if (playBtn) {
