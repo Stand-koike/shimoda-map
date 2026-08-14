@@ -4081,7 +4081,8 @@ const App = {
 
     // データ取得完了後のメイン処理
     _onDataReady() {
-        const spots = State.allSpots;
+        const spots = State.allSpots || [];
+        State.allSpots = spots;
         document.getElementById('loading').style.display = 'none';
 
         if (!this._postsInitialized) {
