@@ -533,35 +533,22 @@ function doGet(e) {
 }
 
 /**
- * マップの <video> 用。Drive 直リンクは HTML5 再生不可のため GAS 経由で mp4 を返す。
- * LINE_MAP_IMAGES フォルダ内のファイルのみ配信（fileId 推測での横流しを抑止）。
+ * マップ再生は Drive の preview iframe を使う。
+ * ContentService に createBlobOutput は無い（テキスト error が返って <video> が再生直前で失敗する）。
  */
 function serveDriveVideoForMap_(fileId) {
   var id = String(fileId || '').trim();
   if (!/^[a-zA-Z0-9_-]{10,}$/.test(id)) {
     return ContentService.createTextOutput('invalid id').setMimeType(ContentService.MimeType.TEXT);
   }
-  try {
-    var file = DriveApp.getFileById(id);
-    if (!isDriveFileAllowedForMapVideo_(file)) {
-      return ContentService.createTextOutput('forbidden').setMimeType(ContentService.MimeType.TEXT);
-    }
-    var blob = file.getBlob();
-    var mime = blob.getContentType() || 'video/mp4';
-    if (mime.indexOf('video/') !== 0 && mime.indexOf('application/') !== 0 && mime.indexOf('octet') < 0) {
-      mime = 'video/mp4';
-    }
-    return ContentService.createBlobOutput(blob).setMimeType(mime);
-  } catch (err) {
-    var msg = String(err && err.message ? err.message : err);
-    webhookExecErr_('[serveDriveVideoForMap_] ' + msg);
-    if (/Authorization|permission|access|denied|Required/i.test(msg)) {
-      return ContentService.createTextOutput(
-        'error: Webアプリのデプロイを「実行ユーザー: 自分」にしてください（匿名アクセスで Drive が開けません）'
-      ).setMimeType(ContentService.MimeType.TEXT);
-    }
-    return ContentService.createTextOutput('error: ' + msg).setMimeType(ContentService.MimeType.TEXT);
-  }
+  var preview = 'https://drive.google.com/file/d/' + id + '/preview';
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+    '<style>html,body{margin:0;height:100%;background:#000}iframe{border:0;width:100%;height:100%}</style>' +
+    '</head><body><iframe src="' + preview + '" allow="autoplay; encrypted-media; fullscreen"></iframe></body></html>';
+  return HtmlService.createHtmlOutput(html)
+    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
+    .setTitle('live video');
 }
 
 /** LINE_MAP_IMAGES 配下、またはリンク共有済みの Drive 動画のみ配信 */
@@ -586,19 +573,7 @@ function isDriveFileAllowedForMapVideo_(file) {
 function buildLiveVideoPlayUrl_(videoFileId) {
   var id = String(videoFileId || '').trim();
   if (!id) return '';
-  var base = '';
-  try {
-    var svc = ScriptApp.getService();
-    if (svc) base = String(svc.getUrl() || '').trim();
-  } catch (e) { /* ignore */ }
-  if (!base) {
-    base = String(PropertiesService.getScriptProperties().getProperty('LIVE_VIDEO_PROXY_BASE') || '').trim();
-  }
-  if (!base) {
-    return 'https://drive.google.com/file/d/' + id + '/view';
-  }
-  var sep = base.indexOf('?') >= 0 ? '&' : '?';
-  return base + sep + 'action=video&id=' + encodeURIComponent(id);
+  return 'https://drive.google.com/file/d/' + id + '/preview';
 }
 
 // ==================================================================
@@ -2129,7 +2104,7 @@ function getOrCreateFolder(folderName) {
 function testServeDriveVideoForMap() {
   var id = '1op6F0cIelMjojMbp20zs9Rcn0vUXUcpj';
   var out = serveDriveVideoForMap_(id);
-  webhookExecLog_('[testServeDriveVideoForMap] mime=' + out.getMimeType());
+  webhookExecLog_('[testServeDriveVideoForMap] title=' + (out.getTitle && out.getTitle()));
 }
 
 // ==================================================================

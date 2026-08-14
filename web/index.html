@@ -1323,6 +1323,8 @@
             pointer-events: none;
         }
         .card-live-post * { pointer-events: none; }
+        .card-live-post video,
+        .card-live-post iframe { pointer-events: auto; }
         /* 画像上に LIVE バッジがあるため、本文エリアはカテゴリ・時刻・1行プレビューのみ */
         .card-live-post--compact { margin-top: 4px; padding: 4px 7px; }
         .card-live-compact-meta {
@@ -1374,6 +1376,14 @@
         .lightbox-video {
             max-width: 95vw; max-height: 90vh;
             border-radius: 8px; background: #000;
+        }
+        .lightbox-drive-video {
+            width: min(95vw, 720px); height: min(70vh, 405px);
+            border: 0; border-radius: 8px; background: #000;
+        }
+        .mapboxgl-popup-content iframe.live-drive-preview,
+        .mapboxgl-popup-content video.live-clip-video {
+            pointer-events: auto;
         }
     </style>
 </head>
@@ -1774,65 +1784,61 @@ function parseLiveMediaFromRaw(raw) {
     const hashM = s.match(/#livevideo=([a-zA-Z0-9_-]+)/);
     const gasPlayM = s.match(/https:\/\/script\.google\.com(?:\/a\/[^/\s]+)?\/macros\/s\/[^\s]+/);
     const fileM = s.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
-    const marked = !!(hashM || gasPlayM || (fileM && /thumbnail\?id=/.test(s)));
+    const marked = !!(hashM || (gasPlayM && /action=video/.test(gasPlayM[0])) || (fileM && /thumbnail\?id=/.test(s)));
     const firstToken = (s.match(/https?:\/\/[^\s]+/) || [s])[0];
     const imageUrl = normalizeImageUrl(firstToken.split('#')[0]);
     if (!marked) {
         return { imageUrl: imageUrl || (raw ? normalizeImageUrl(s) : ''), videoUrl: '' };
     }
-    if (gasPlayM && /action=video/.test(gasPlayM[0])) {
-        return { imageUrl, videoUrl: gasPlayM[0].split('#')[0] };
+    let videoFileId = (hashM && hashM[1]) || '';
+    if (!videoFileId && gasPlayM && /action=video/.test(gasPlayM[0])) {
+        const idM = gasPlayM[0].match(/[?&]id=([a-zA-Z0-9_-]+)/);
+        if (idM) videoFileId = idM[1];
     }
-    const videoFileId = (hashM && hashM[1]) || (fileM && fileM[1]) || '';
+    if (!videoFileId && fileM) videoFileId = fileM[1];
     return {
         imageUrl,
-        videoUrl: videoFileId ? `https://drive.google.com/file/d/${videoFileId}/view` : ''
+        videoUrl: videoFileId ? `https://drive.google.com/file/d/${videoFileId}/preview` : ''
     };
 }
 
-/** GAS ウェブアプリ経由の動画 URL（Drive 直リンクは <video> で再生不可） */
+/** GAS ウェブアプリ経由は mp4 を返せない（createBlobOutput が無い）。Drive preview を使う */
 function buildLiveVideoProxyUrl_(fileId) {
-    const id = String(fileId || '').trim();
-    if (!id) return '';
-    const base = String((CONFIG && CONFIG.LIVE_VIDEO_PROXY_BASE) || '').trim();
-    if (!base) return '';
-    const sep = base.indexOf('?') >= 0 ? '&' : '?';
-    return base + sep + 'action=video&id=' + encodeURIComponent(id);
+    return '';
 }
 
-/** posts 行から Drive 動画 FILE_ID を取り出す */
+/** posts 行から Drive 動画 FILE_ID を取り出す（サムネ thumbnail?id= は使わない） */
 function extractLiveVideoFileId_(lp) {
     if (!lp) return '';
-    const fromUrl = lp.videoUrl ? extractDriveFileId_(lp.videoUrl) : '';
-    if (fromUrl) return fromUrl;
-    const raw = String(lp.imageUrl || '');
-    const hashM = raw.match(/#livevideo=([a-zA-Z0-9_-]+)/);
-    if (hashM) return hashM[1];
-    const gasM = raw.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-    return gasM ? gasM[1] : '';
+    if (lp.videoFileId) return String(lp.videoFileId).trim();
+    const hashFromImg = String(lp.imageUrl || '').match(/#livevideo=([a-zA-Z0-9_-]+)/);
+    if (hashFromImg) return hashFromImg[1];
+    const v = String(lp.videoUrl || '');
+    const driveM = v.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (driveM) return driveM[1];
+    if (/script\.google\.com/.test(v) && /action=video/.test(v)) {
+        const idM = v.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+        if (idM) return idM[1];
+    }
+    return extractDriveFileId_(v) || '';
 }
 
 function liveDrivePreviewIframeHtml_(fileId, style, extraClass) {
     const id = encodeURIComponent(String(fileId || ''));
-    const cls = extraClass ? ` class="${extraClass}"` : '';
+    const cls = extraClass ? ` class="${extraClass} live-drive-preview"` : ' class="live-drive-preview"';
     return `<iframe src="https://drive.google.com/file/d/${id}/preview"${cls} ` +
         `style="${style || 'max-width:220px;width:100%;height:160px;border:0;border-radius:8px;margin-top:6px;display:block;'}" ` +
-        `allow="autoplay; encrypted-media" loading="lazy"></iframe>`;
+        `allow="autoplay; encrypted-media; fullscreen" loading="lazy" referrerpolicy="no-referrer"></iframe>`;
 }
 
 window.__liveVideoIframeFallback = function(videoEl, fileId) {
     if (!videoEl || !fileId || videoEl.dataset.fbf) return;
     videoEl.dataset.fbf = '1';
-    const iframe = document.createElement('iframe');
-    iframe.src = 'https://drive.google.com/file/d/' + encodeURIComponent(fileId) + '/preview';
-    iframe.allow = 'autoplay; encrypted-media';
-    iframe.loading = 'lazy';
-    iframe.style.cssText = videoEl.style.cssText ||
-        'max-width:220px;width:100%;height:160px;border:0;border-radius:8px;margin-top:6px;display:block;';
-    if (videoEl.classList.contains('modal-live-video')) {
-        iframe.className = 'modal-live-image modal-live-video';
-        iframe.onclick = (e) => e.stopPropagation();
-    }
+    const wrap = document.createElement('div');
+    wrap.innerHTML = liveDrivePreviewIframeHtml_(fileId, videoEl.style.cssText || '', videoEl.className || '');
+    const iframe = wrap.firstElementChild;
+    if (!iframe) return;
+    iframe.onclick = (e) => e.stopPropagation();
     videoEl.replaceWith(iframe);
 };
 
@@ -1842,14 +1848,10 @@ function resolveLiveVideoPlayUrl_(lp) {
         const fromRaw = normalizeVideoPlayUrl(lp.videoUrl);
         if (fromRaw) return { playUrl: fromRaw, fileId };
     }
-    if (fileId) {
-        const proxy = buildLiveVideoProxyUrl_(fileId);
-        if (proxy) return { playUrl: proxy, fileId };
-    }
     return { playUrl: '', fileId };
 }
 
-/** Drive / GAS リンクを <video src> 向け URL に揃える */
+/** ローカル mp4（デモ）だけ <video src> にする。Drive / GAS は iframe 用 */
 function normalizeVideoPlayUrl(raw) {
     if (typeof raw !== 'string') return '';
     const s = raw.trim();
@@ -1858,17 +1860,7 @@ function normalizeVideoPlayUrl(raw) {
         if (/^(?:\.\/)?[\w./-]+\.(?:mp4|webm|ogg)$/i.test(s) && s.indexOf('..') < 0) return s;
         return '';
     }
-    if (/script\.google\.com(?:\/a\/[^/]+)?\/macros\/s\//.test(s) && /action=video/.test(s)) {
-        return s.split('#')[0];
-    }
-    const driveId = extractDriveFileId_(s);
-    if (driveId) {
-        const proxy = buildLiveVideoProxyUrl_(driveId);
-        if (proxy) return proxy;
-        // Drive 直リンクは GitHub Pages から CORP で弾かれるため空（iframe フォールバック）
-        return '';
-    }
-    return s.split('#')[0];
+    return '';
 }
 
 function installLiveVideoClipLimiter() {
@@ -1910,13 +1902,12 @@ function livePopupMediaHtml(lp) {
     const thumb = lp.imageUrl || '';
     const resolved = resolveLiveVideoPlayUrl_(lp);
     const { playUrl, fileId } = resolved;
-    if (playUrl) {
-        const poster = thumb ? ` poster="${escapeHtml(thumb)}"` : '';
-        const fb = fileId ? ` onerror="window.__liveVideoIframeFallback(this,'${fileId}')"` : '';
-        return `<video class="live-clip-video" src="${escapeHtml(playUrl)}"${poster}${fb} controls playsinline muted preload="none" style="max-width:220px;width:100%;border-radius:8px;margin-top:6px;display:block"></video>`;
-    }
     if (fileId) {
         return liveDrivePreviewIframeHtml_(fileId);
+    }
+    if (playUrl) {
+        const poster = thumb ? ` poster="${escapeHtml(thumb)}"` : '';
+        return `<video class="live-clip-video" src="${escapeHtml(playUrl)}"${poster} controls playsinline muted preload="metadata" style="max-width:220px;width:100%;border-radius:8px;margin-top:6px;display:block"></video>`;
     }
     if (thumb) {
         return `<img src="${escapeHtml(thumb)}" alt="" style="max-width:220px;border-radius:8px;margin-top:6px"/>`;
@@ -1928,13 +1919,12 @@ function liveModalMediaHtml(lp) {
     const thumb = lp.imageUrl || '';
     const resolved = resolveLiveVideoPlayUrl_(lp);
     const { playUrl, fileId } = resolved;
+    if (fileId) {
+        return liveDrivePreviewIframeHtml_(fileId, 'max-width:100%;width:100%;height:240px;border:0;border-radius:8px;', 'modal-live-image modal-live-video');
+    }
     if (playUrl) {
         const poster = thumb ? ` poster="${escapeHtml(thumb)}"` : '';
-        const fb = fileId ? ` onerror="window.__liveVideoIframeFallback(this,'${fileId}')"` : '';
-        return `<video class="modal-live-image modal-live-video live-clip-video" src="${escapeHtml(playUrl)}"${poster}${fb} controls playsinline muted preload="metadata" onclick="event.stopPropagation()"></video>`;
-    }
-    if (fileId) {
-        return liveDrivePreviewIframeHtml_(fileId, 'max-width:100%;width:100%;height:220px;border:0;border-radius:8px;', 'modal-live-image modal-live-video');
+        return `<video class="modal-live-image modal-live-video live-clip-video" src="${escapeHtml(playUrl)}"${poster} controls playsinline muted preload="metadata" onclick="event.stopPropagation()"></video>`;
     }
     if (thumb) {
         const safeUrl = escapeAttrUrl_(thumb);
@@ -2302,6 +2292,7 @@ const PostsModule = {
             const imageUrl = parsed.imageUrl;
             const rawVidCol = row.c[14]?.v != null ? String(row.c[14].v).trim() : '';
             const videoUrl = parsed.videoUrl || (rawVidCol && /^https?:\/\//i.test(rawVidCol) ? rawVidCol : '');
+            const videoFileId = extractLiveVideoFileId_({ imageUrl: rawImg, videoUrl: videoUrl });
             if (!text && !imageUrl && !videoUrl) return;
 
             const expiresAt = parseSheetDate(row.c[12]?.v);
@@ -2331,6 +2322,7 @@ const PostsModule = {
                 message: text,
                 imageUrl,
                 videoUrl,
+                videoFileId: videoFileId || '',
                 lat,
                 lng,
                 storeId,
@@ -2361,6 +2353,7 @@ const PostsModule = {
                         message:    p.message,
                         imageUrl:   p.imageUrl,
                         videoUrl:   p.videoUrl || '',
+                        videoFileId: p.videoFileId || '',
                         category:   p.category,
                         role:       p.role,
                         sourceType: p.sourceType,
@@ -4066,11 +4059,27 @@ const UIModule = {
         if (!overlay) return;
         overlay.querySelectorAll('iframe.lightbox-drive-video').forEach(el => el.remove());
 
-        const fileId = String(videoFileId || '').trim() || extractDriveFileId_(videoUrl || '');
-        let playUrl = videoUrl ? normalizeVideoPlayUrl(videoUrl) : '';
-        if (!playUrl && fileId) playUrl = buildLiveVideoProxyUrl_(fileId);
+        const fileId = String(videoFileId || '').trim() || extractLiveVideoFileId_({ imageUrl: url, videoUrl: videoUrl });
+        const playUrl = videoUrl ? normalizeVideoPlayUrl(videoUrl) : '';
 
-        if (playUrl && vid) {
+        if (fileId) {
+            if (img) {
+                img.src = '';
+                img.style.display = 'none';
+            }
+            if (vid) {
+                vid.pause();
+                vid.removeAttribute('src');
+                vid.style.display = 'none';
+            }
+            const iframe = document.createElement('iframe');
+            iframe.className = 'lightbox-drive-video';
+            iframe.src = 'https://drive.google.com/file/d/' + encodeURIComponent(fileId) + '/preview';
+            iframe.allow = 'autoplay; encrypted-media; fullscreen';
+            iframe.referrerPolicy = 'no-referrer';
+            iframe.onclick = (e) => e.stopPropagation();
+            overlay.appendChild(iframe);
+        } else if (playUrl && vid) {
             if (img) {
                 img.src = '';
                 img.style.display = 'none';
@@ -4078,22 +4087,8 @@ const UIModule = {
             vid.style.display = 'block';
             vid.classList.add('live-clip-video');
             vid.poster = url || '';
-            vid.onerror = function() {
-                if (fileId && !this.dataset.fbf) window.__liveVideoIframeFallback(this, fileId);
-            };
             vid.src = playUrl;
             try { vid.currentTime = 0; } catch (_) { /* ignore */ }
-        } else if (fileId && vid) {
-            if (img) {
-                img.src = '';
-                img.style.display = 'none';
-            }
-            vid.style.display = 'block';
-            vid.removeAttribute('src');
-            vid.removeAttribute('poster');
-            window.__liveVideoIframeFallback(vid, fileId);
-            const iframe = overlay.querySelector('iframe');
-            if (iframe) iframe.classList.add('lightbox-drive-video');
         } else if (img) {
             if (vid) {
                 vid.pause();
