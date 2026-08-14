@@ -1772,12 +1772,16 @@ function parseLiveMediaFromRaw(raw) {
     if (!s) return { imageUrl: '', videoUrl: '' };
 
     const hashM = s.match(/#livevideo=([a-zA-Z0-9_-]+)/);
+    const gasPlayM = s.match(/https:\/\/script\.google\.com\/macros\/s\/[^\s]+/);
     const fileM = s.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
-    const marked = !!(hashM || (fileM && /thumbnail\?id=/.test(s)));
+    const marked = !!(hashM || gasPlayM || (fileM && /thumbnail\?id=/.test(s)));
     const firstToken = (s.match(/https?:\/\/[^\s]+/) || [s])[0];
     const imageUrl = normalizeImageUrl(firstToken.split('#')[0]);
     if (!marked) {
         return { imageUrl: imageUrl || (raw ? normalizeImageUrl(s) : ''), videoUrl: '' };
+    }
+    if (gasPlayM && /action=video/.test(gasPlayM[0])) {
+        return { imageUrl, videoUrl: gasPlayM[0].split('#')[0] };
     }
     const videoFileId = (hashM && hashM[1]) || (fileM && fileM[1]) || '';
     return {
@@ -1786,16 +1790,34 @@ function parseLiveMediaFromRaw(raw) {
     };
 }
 
-/** Drive 共有リンクを <video src> 向けのダウンロード URL に揃える */
+/** GAS ウェブアプリ経由の動画 URL（Drive 直リンクは <video> で再生不可） */
+function buildLiveVideoProxyUrl_(fileId) {
+    const id = String(fileId || '').trim();
+    if (!id) return '';
+    const base = String((CONFIG && CONFIG.LIVE_VIDEO_PROXY_BASE) || '').trim();
+    if (!base) return '';
+    const sep = base.indexOf('?') >= 0 ? '&' : '?';
+    return base + sep + 'action=video&id=' + encodeURIComponent(id);
+}
+
+/** Drive / GAS リンクを <video src> 向け URL に揃える */
 function normalizeVideoPlayUrl(raw) {
     if (typeof raw !== 'string') return '';
     const s = raw.trim();
-    if (!s || !/^https?:\/\//i.test(s)) {
+    if (!s) return '';
+    if (!/^https?:\/\//i.test(s)) {
         if (/^(?:\.\/)?[\w./-]+\.(?:mp4|webm|ogg)$/i.test(s) && s.indexOf('..') < 0) return s;
         return '';
     }
+    if (/script\.google\.com\/macros\/s\//.test(s) && /action=video/.test(s)) {
+        return s.split('#')[0];
+    }
     const driveId = extractDriveFileId_(s);
-    if (driveId) return `https://drive.google.com/uc?export=download&id=${driveId}`;
+    if (driveId) {
+        const proxy = buildLiveVideoProxyUrl_(driveId);
+        if (proxy) return proxy;
+        return `https://drive.google.com/uc?export=view&id=${driveId}`;
+    }
     return s.split('#')[0];
 }
 

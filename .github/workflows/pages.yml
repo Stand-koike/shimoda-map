@@ -1,6 +1,7 @@
 # GitHub Pages — web/ をサイトルートとして公開
 # Actions の Repository secrets:
-#   MAPBOX_PUBLIC_TOKEN, GOOGLE_SHEET_ID（必須） / POSTS_SHEET, EVENTS_SHEET（任意）
+#   MAPBOX_PUBLIC_TOKEN, GOOGLE_SHEET_ID（必須）
+#   POSTS_SHEET, EVENTS_SHEET, LIVE_VIDEO_PROXY_BASE（任意・LINE動画再生用 GAS /exec URL）
 # Settings → Pages → Source: GitHub Actions
 #
 # build と deploy を分離し、upload-pages-artifact は build のみ（重複アーティファクト回避）
@@ -34,6 +35,7 @@ jobs:
           SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           POSTS_SHEET: ${{ secrets.POSTS_SHEET }}
           EVENTS_SHEET: ${{ secrets.EVENTS_SHEET }}
+          LIVE_VIDEO_PROXY_BASE: ${{ secrets.LIVE_VIDEO_PROXY_BASE }}
         run: |
           node <<'NODE'
           const fs = require('fs');
@@ -41,12 +43,14 @@ jobs:
           const SHEET_ID = process.env.SHEET_ID || '';
           const POSTS_SHEET = (process.env.POSTS_SHEET || '').trim() || 'posts';
           const EVENTS_SHEET = (process.env.EVENTS_SHEET || '').trim() || 'event_schedule';
+          const LIVE_VIDEO_PROXY_BASE = (process.env.LIVE_VIDEO_PROXY_BASE || '').trim();
           const body =
             'window.__SHIMODA_MAP_SECRETS__ = {\n' +
             `    MAPBOX_TOKEN: ${JSON.stringify(MAPBOX_TOKEN)},\n` +
             `    SHEET_ID: ${JSON.stringify(SHEET_ID)},\n` +
             `    POSTS_SHEET: ${JSON.stringify(POSTS_SHEET)},\n` +
-            `    EVENTS_SHEET: ${JSON.stringify(EVENTS_SHEET)}\n` +
+            `    EVENTS_SHEET: ${JSON.stringify(EVENTS_SHEET)},\n` +
+            `    LIVE_VIDEO_PROXY_BASE: ${JSON.stringify(LIVE_VIDEO_PROXY_BASE)}\n` +
             '};\n';
           fs.writeFileSync('web/secrets.local.js', body, 'utf8');
           NODE

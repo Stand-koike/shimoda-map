@@ -26,6 +26,8 @@
 
         MAPBOX_TOKEN: secrets.MAPBOX_TOKEN || 'pk.YOUR_MAPBOX_TOKEN',
         SHEET_ID:     secrets.SHEET_ID     || 'YOUR_GOOGLE_SHEET_ID',
+        /** LINE 動画の GAS プロキシ（Webhook ウェブアプリの /exec URL） */
+        LIVE_VIDEO_PROXY_BASE: secrets.LIVE_VIDEO_PROXY_BASE || '',
 
         // Google Sheets 列マッピング (0-index) — シート列順と一致させる
         COLS: {

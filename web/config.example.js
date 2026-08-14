@@ -22,6 +22,7 @@
 
         MAPBOX_TOKEN: secrets.MAPBOX_TOKEN || 'pk.YOUR_MAPBOX_TOKEN',
         SHEET_ID:     secrets.SHEET_ID     || 'YOUR_GOOGLE_SHEET_ID',
+        LIVE_VIDEO_PROXY_BASE: secrets.LIVE_VIDEO_PROXY_BASE || '',
 
         COLS: {
             NAME: 1, LAT: 2, LNG: 3, EMOJI: 4, URL: 5, DESC: 6,

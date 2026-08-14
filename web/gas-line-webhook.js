@@ -523,8 +523,68 @@ function doPost(e) {
   }
 }
 
-function doGet() {
+function doGet(e) {
+  e = e || {};
+  var p = e.parameter || {};
+  if (p.action === 'video' && p.id) {
+    return serveDriveVideoForMap_(p.id);
+  }
   return ContentService.createTextOutput('OK').setMimeType(ContentService.MimeType.TEXT);
+}
+
+/**
+ * マップの <video> 用。Drive 直リンクは HTML5 再生不可のため GAS 経由で mp4 を返す。
+ * LINE_MAP_IMAGES フォルダ内のファイルのみ配信（fileId 推測での横流しを抑止）。
+ */
+function serveDriveVideoForMap_(fileId) {
+  var id = String(fileId || '').trim();
+  if (!/^[a-zA-Z0-9_-]{10,}$/.test(id)) {
+    return ContentService.createTextOutput('invalid id').setMimeType(ContentService.MimeType.TEXT);
+  }
+  try {
+    var file = DriveApp.getFileById(id);
+    if (!isDriveFileInWebhookMediaFolder_(file)) {
+      return ContentService.createTextOutput('forbidden').setMimeType(ContentService.MimeType.TEXT);
+    }
+    var blob = file.getBlob();
+    var mime = blob.getContentType() || 'video/mp4';
+    if (mime.indexOf('video/') !== 0 && mime.indexOf('application/') !== 0) {
+      mime = 'video/mp4';
+    }
+    return ContentService.createBlobOutput(blob).setMimeType(mime);
+  } catch (err) {
+    webhookExecErr_('[serveDriveVideoForMap_] ' + String(err && err.message ? err.message : err));
+    return ContentService.createTextOutput('error').setMimeType(ContentService.MimeType.TEXT);
+  }
+}
+
+function isDriveFileInWebhookMediaFolder_(file) {
+  var folder = getOrCreateFolder(DRIVE_FOLDER_NAME);
+  var targetId = folder.getId();
+  var parents = file.getParents();
+  while (parents.hasNext()) {
+    if (parents.next().getId() === targetId) return true;
+  }
+  return false;
+}
+
+/** ウェブアプリ URL + ?action=video&id=… （ScriptApp.getService または LIVE_VIDEO_PROXY_BASE） */
+function buildLiveVideoPlayUrl_(videoFileId) {
+  var id = String(videoFileId || '').trim();
+  if (!id) return '';
+  var base = '';
+  try {
+    var svc = ScriptApp.getService();
+    if (svc) base = String(svc.getUrl() || '').trim();
+  } catch (e) { /* ignore */ }
+  if (!base) {
+    base = String(PropertiesService.getScriptProperties().getProperty('LIVE_VIDEO_PROXY_BASE') || '').trim();
+  }
+  if (!base) {
+    return 'https://drive.google.com/file/d/' + id + '/view';
+  }
+  var sep = base.indexOf('?') >= 0 ? '&' : '?';
+  return base + sep + 'action=video&id=' + encodeURIComponent(id);
 }
 
 // ==================================================================
@@ -2019,9 +2079,9 @@ function drivePublicThumbUrl_(fileId) {
 /** 既存 imageUrl 列だけで動画と写真を区別する。フラグメントは <img> リクエストに乗らない */
 function annotateLiveVideoImageUrl_(thumbUrl, videoFileId) {
   const base = String(thumbUrl || '').split('#')[0];
-  // フラグメントは <img> に乗らない。gviz が hash を落とす場合に備え file/d URL も同じセルに併記する（列は増やさない）。
-  return base + '#' + LIVE_VIDEO_URL_HASH + '=' + videoFileId
-    + ' https://drive.google.com/file/d/' + videoFileId + '/view';
+  // フラグメントは <img> に乗らない。gviz が hash を落とす場合に備え再生 URL も同じセルに併記（列は増やさない）。
+  var playUrl = buildLiveVideoPlayUrl_(videoFileId);
+  return base + '#' + LIVE_VIDEO_URL_HASH + '=' + videoFileId + ' ' + playUrl;
 }
 
 function isLiveVideoImageUrl_(url) {
@@ -2141,6 +2201,7 @@ function logWebhookScriptPropertyKeys() {
     '[必須] LINE_CHANNEL_ACCESS_TOKEN … LINE 長期チャネルアクセストークン',
     '[任意] ADMIN_LINE_USER_ID … 管理者の LINE userId',
     '[任意] REGISTRATION_PASSWORD … 協力・店舗登録用（空なら店舗登録は無パスワード可）',
+    '[任意] LIVE_VIDEO_PROXY_BASE … 動画再生用ウェブアプリ URL（末尾 /exec）。未設定時は ScriptApp.getService().getUrl() を使用',
     '--- 互換キー（任意・誤記対策） ---',
     'YOUR_GOOGLE_SHEET_ID, YOUR_LINE_CHANNEL_ACCESS_TOKEN',
     '--- 試験用 --- WEBHOOK_CONFIG … ローカル試験のフォールバックのみ。本番は空のまま。'
