@@ -22,6 +22,11 @@
  *
  * 【スプレッドシートでのモデレーション】
  *   posts シートの isVisible を FALSE にするとマップから非表示。
+ *
+ * 【マップの動画再生】
+ *   doGet(?action=video&id=FILE_ID) が先頭数秒分の mp4 を HtmlService の <video autoplay muted> で返す。
+ *   GitHub Pages から Drive 直リンクは CORP でブロックされるため、このウェブアプリの再デプロイが必須。
+ *   コードを貼り替えたら「デプロイ → 新しいデプロイ」（または既存ウェブアプリの「新しいバージョン」）。
  */
 
 // ---------------------------------------------------------------
@@ -533,22 +538,51 @@ function doGet(e) {
 }
 
 /**
- * マップ再生は Drive の preview iframe を使う。
- * ContentService に createBlobOutput は無い（テキスト error が返って <video> が再生直前で失敗する）。
+ * マップ再生用クリップ。ContentService にバイナリ出力は無いので HtmlService + data/blob で返す。
+ * Drive usercontent は CORP same-site のため GitHub Pages の <video src> / fetch では再生できない。
  */
 function serveDriveVideoForMap_(fileId) {
   var id = String(fileId || '').trim();
   if (!/^[a-zA-Z0-9_-]{10,}$/.test(id)) {
     return ContentService.createTextOutput('invalid id').setMimeType(ContentService.MimeType.TEXT);
   }
-  var preview = 'https://drive.google.com/file/d/' + id + '/preview';
   var html = '<!DOCTYPE html><html><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1">' +
-    '<style>html,body{margin:0;height:100%;background:#000}iframe{border:0;width:100%;height:100%}</style>' +
-    '</head><body><iframe src="' + preview + '" allow="autoplay; encrypted-media; fullscreen"></iframe></body></html>';
+    '<style>html,body{margin:0;height:100%;background:#000;overflow:hidden}' +
+    'video{width:100%;height:100%;object-fit:cover;display:block}</style></head><body>' +
+    '<video id="v" autoplay muted playsinline webkit-playsinline></video>' +
+    '<script>(function(){' +
+    'function msg(t){try{parent.postMessage({source:"shimoda-live-video",type:t},"*");}catch(e){}' +
+    'try{parent.parent.postMessage({source:"shimoda-live-video",type:t},"*");}catch(e2){}}' +
+    'function b64ToBlob(b64){var bin=atob(b64);var arr=new Uint8Array(bin.length);' +
+    'for(var i=0;i<bin.length;i++)arr[i]=bin.charCodeAt(i);' +
+    'return new Blob([arr],{type:"video/mp4"});}' +
+    'function playB64(b64){var v=document.getElementById("v");' +
+    'v.src=URL.createObjectURL(b64ToBlob(b64));' +
+    'v.addEventListener("timeupdate",function(){if(v.currentTime>=3){try{v.pause();}catch(e){} msg("ended");}});' +
+    'var p=v.play(); if(p&&p.then)p.then(function(){msg("playing");}).catch(function(){msg("error");}); else msg("playing");}' +
+    'google.script.run.withSuccessHandler(playB64).withFailureHandler(function(){msg("error");})' +
+    '.getLiveVideoClipBase64(' + JSON.stringify(id) + ');' +
+    '})();</script></body></html>';
   return HtmlService.createHtmlOutput(html)
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .setTitle('live video');
+}
+
+/** HtmlService から呼ぶ。先頭約 1.5MB（3秒分+余裕、moov 先頭の mp4 向け） */
+function getLiveVideoClipBase64(fileId) {
+  var id = String(fileId || '').trim();
+  if (!/^[a-zA-Z0-9_-]{10,}$/.test(id)) {
+    throw new Error('invalid id');
+  }
+  var file = DriveApp.getFileById(id);
+  if (!isDriveFileAllowedForMapVideo_(file)) {
+    throw new Error('forbidden');
+  }
+  var full = file.getBlob().getBytes();
+  var maxBytes = 1500000;
+  var bytes = full.length > maxBytes ? Array.prototype.slice.call(full, 0, maxBytes) : full;
+  return Utilities.base64Encode(bytes);
 }
 
 /** LINE_MAP_IMAGES 配下、またはリンク共有済みの Drive 動画のみ配信 */
