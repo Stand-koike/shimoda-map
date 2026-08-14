@@ -239,9 +239,9 @@ function ensurePendingSheet_(ss) {
   let sheet = ss.getSheetByName(SETUP_NAMES.PENDING);
   if (sheet) return;
   sheet = setupInsertSheetAtEnd_(ss, SETUP_NAMES.PENDING);
-  sheet.appendRow(['userId', 'store_id', 'message', 'saved_at']);
+  sheet.appendRow(['userId', 'store_id', 'message', 'saved_at', 'image_url', 'video_url']);
   sheet.setFrozenRows(1);
-  styleHeaderRow_(sheet, 1, 4, '#FFA000');
+  styleHeaderRow_(sheet, 1, 6, '#FFA000');
 }
 
 function ensureBotSessionSheet_(ss) {
@@ -259,10 +259,10 @@ function ensurePostsSheet_(ss) {
   s.appendRow([
     'postId', 'userId', 'role', 'sourceType', 'category',
     'text', 'imageUrl', 'lat', 'lng', 'storeId', 'spotId',
-    'createdAt', 'expiresAt', 'isVisible'
+    'createdAt', 'expiresAt', 'isVisible', 'videoUrl'
   ]);
   s.setFrozenRows(1);
-  styleHeaderRow_(s, 1, 14, '#2E7D32');
+  styleHeaderRow_(s, 1, 15, '#2E7D32');
 }
 
 function ensureVenueSheet_(ss) {
@@ -293,7 +293,8 @@ function seedDummyPostsIfEmpty_(ss) {
     '',
     now,
     tomorrow,
-    true
+    true,
+    ''
   ]);
 
   sheet.appendRow([
@@ -310,7 +311,8 @@ function seedDummyPostsIfEmpty_(ss) {
     'vs-stage',
     now,
     tomorrow,
-    true
+    true,
+    ''
   ]);
 
   sheet.appendRow([
@@ -327,7 +329,8 @@ function seedDummyPostsIfEmpty_(ss) {
     '',
     now,
     tomorrow,
-    true
+    true,
+    ''
   ]);
 
   sheet.appendRow([
@@ -343,7 +346,8 @@ function seedDummyPostsIfEmpty_(ss) {
     '',
     now,
     tomorrow,
-    false
+    false,
+    ''
   ]);
 }
 

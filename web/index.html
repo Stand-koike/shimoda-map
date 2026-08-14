@@ -422,6 +422,20 @@
         .floating { animation: float-safe 3s infinite ease-in-out; }
         @keyframes float-safe { 0%, 100% { margin-top: 0; } 50% { margin-top: -8px; } }
         .marker-image { width: 100%; height: 100%; object-fit: cover; position: absolute; top: 0; left: 0; z-index: 2; }
+        .marker-video-play {
+            position: absolute; inset: 0; z-index: 4; pointer-events: none;
+            background: rgba(0,0,0,0.28);
+            display: flex; align-items: center; justify-content: center;
+        }
+        .marker-video-play::after {
+            content: '';
+            width: 0; height: 0;
+            border-style: solid;
+            border-width: 7px 0 7px 12px;
+            border-color: transparent transparent transparent #fff;
+            margin-left: 2px;
+            filter: drop-shadow(0 1px 2px rgba(0,0,0,0.45));
+        }
         .marker-emoji { font-size: 28px; z-index: 1; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
         .status-badge { position: absolute; bottom: 0; right: 0; width: 14px; height: 14px; border-radius: 50%; border: 2px solid white; z-index: 5; display: none; }
         .marker-news-badge {
@@ -1209,6 +1223,7 @@
             align-items: center;
             justify-content: center;
             overflow: hidden;
+            position: relative;
         }
         @media (max-width: 767px) {
             .marker-pin > .marker-inner,
@@ -1338,6 +1353,9 @@
             width: 100%; border-radius: 8px; cursor: pointer;
             max-height: 220px; object-fit: cover; display: block; margin-bottom: 8px;
         }
+        .modal-live-video {
+            cursor: default; background: #000; max-height: 240px; object-fit: contain;
+        }
         .modal-live-message {
             font-size: 14px; color: #333; line-height: 1.6; white-space: pre-wrap;
         }
@@ -1352,6 +1370,10 @@
         .lightbox-img {
             max-width: 95vw; max-height: 90vh;
             object-fit: contain; border-radius: 8px;
+        }
+        .lightbox-video {
+            max-width: 95vw; max-height: 90vh;
+            border-radius: 8px; background: #000;
         }
     </style>
 </head>
@@ -1533,9 +1555,10 @@
     </div>
 </div>
 
-<!-- ライトボックス (LIVE画像拡大) -->
+<!-- ライトボックス (LIVE画像・動画拡大) -->
 <div class="lightbox-overlay" id="lightbox-overlay" onclick="UIModule.closeLightbox()">
     <img class="lightbox-img" id="lightbox-img" src="" alt="">
+    <video class="lightbox-video" id="lightbox-video" controls playsinline muted preload="metadata" style="display:none" onclick="event.stopPropagation()"></video>
 </div>
 
 <!-- secrets / config は <head> で読み込み済み -->
@@ -1698,6 +1721,102 @@ function normalizeImageUrl(raw) {
 
     // lh3.googleusercontent.com 等（AppSheet が直接返す場合）はそのまま
     return s;
+}
+
+function extractDriveFileId_(raw) {
+    if (typeof raw !== 'string') return null;
+    const s = raw.trim();
+    const m1 = s.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (m1) return m1[1];
+    try {
+        const u = new URL(s);
+        if (u.hostname === 'drive.google.com' || u.hostname === 'drive.usercontent.google.com') {
+            const id = u.searchParams.get('id');
+            if (id && /^[a-zA-Z0-9_-]+$/.test(id)) return id;
+        }
+    } catch (_) { /* ignore */ }
+    return null;
+}
+
+/** Drive 共有リンクを <video src> 向けのダウンロード URL に揃える */
+function normalizeVideoPlayUrl(raw) {
+    if (typeof raw !== 'string') return '';
+    const s = raw.trim();
+    if (!s || !/^https?:\/\//i.test(s)) return '';
+    const driveId = extractDriveFileId_(s);
+    if (driveId) return `https://drive.google.com/uc?export=download&id=${driveId}`;
+    return s;
+}
+
+function liveFallbackText(lp) {
+    if (lp && lp.message) return lp.message;
+    if (lp && lp.videoUrl) return '（動画投稿）';
+    if (lp && lp.imageUrl) return '（画像投稿）';
+    return '';
+}
+
+function escapeAttrUrl_(url) {
+    return String(url || '').replace(/'/g, '%27');
+}
+
+function appendMarkerVideoPlayOverlay(parent) {
+    if (!parent) return;
+    const el = document.createElement('div');
+    el.className = 'marker-video-play';
+    el.setAttribute('aria-hidden', 'true');
+    parent.appendChild(el);
+}
+
+function livePopupMediaHtml(lp) {
+    const thumb = lp.imageUrl || '';
+    const playUrl = lp.videoUrl ? normalizeVideoPlayUrl(lp.videoUrl) : '';
+    if (playUrl) {
+        const poster = thumb ? ` poster="${escapeHtml(thumb)}"` : '';
+        return `<video src="${escapeHtml(playUrl)}"${poster} controls playsinline muted preload="none" style="max-width:220px;width:100%;border-radius:8px;margin-top:6px;display:block"></video>`;
+    }
+    if (thumb) {
+        return `<img src="${escapeHtml(thumb)}" alt="" style="max-width:220px;border-radius:8px;margin-top:6px"/>`;
+    }
+    return '';
+}
+
+function liveModalMediaHtml(lp) {
+    const thumb = lp.imageUrl || '';
+    const playUrl = lp.videoUrl ? normalizeVideoPlayUrl(lp.videoUrl) : '';
+    if (playUrl) {
+        const poster = thumb ? ` poster="${escapeHtml(thumb)}"` : '';
+        return `<video class="modal-live-image modal-live-video" src="${escapeHtml(playUrl)}"${poster} controls playsinline muted preload="metadata" onclick="event.stopPropagation()"></video>`;
+    }
+    if (thumb) {
+        const safeUrl = escapeAttrUrl_(thumb);
+        return `<img src="${thumb}" class="modal-live-image"
+                    onclick="UIModule.openLightbox('${safeUrl}')"
+                    onerror="this.style.display='none'">`;
+    }
+    return '';
+}
+
+function liveNewsThumbHtml(lp, extraStyle) {
+    const thumb = (lp && lp.imageUrl) || '';
+    const playUrl = lp && lp.videoUrl ? normalizeVideoPlayUrl(lp.videoUrl) : '';
+    if (!thumb && !playUrl) {
+        return `<div class="news-item-icon news-item-type-live"><i class="fas fa-circle" style="font-size:10px;"></i></div>`;
+    }
+    const safeImg = escapeAttrUrl_(thumb);
+    const safeVid = escapeAttrUrl_(playUrl);
+    const style = extraStyle ? ` style="${extraStyle}"` : '';
+    const click = playUrl
+        ? `onclick="event.stopPropagation(); UIModule.openLightbox('${safeImg}','${safeVid}')"`
+        : `onclick="event.stopPropagation(); UIModule.openLightbox('${safeImg}')"`;
+    const src = thumb || '';
+    const playMark = playUrl
+        ? '<span class="marker-video-play" style="border-radius:8px;"></span>'
+        : '';
+    return `<span style="position:relative;display:inline-block;flex-shrink:0">${
+        src
+            ? `<img src="${src}" class="news-item-live-thumb"${style} ${click} onerror="this.style.display='none'">`
+            : `<div class="news-item-live-thumb" style="background:#111;${extraStyle || ''}" ${click}></div>`
+    }${playMark}</span>`;
 }
 
 function timeAgo(date) {
@@ -1997,7 +2116,7 @@ const PostsModule = {
     },
 
     /**
-     * 列: postId userId role sourceType category text imageUrl lat lng storeId spotId createdAt expiresAt isVisible
+     * 列: postId userId role sourceType category text imageUrl lat lng storeId spotId createdAt expiresAt isVisible [videoUrl]
      */
     _parse(json) {
         const postsByStoreId = {};
@@ -2017,7 +2136,9 @@ const PostsModule = {
             const text = row.c[5]?.v != null ? String(row.c[5].v).trim() : '';
             const rawImg = row.c[6]?.v != null ? String(row.c[6].v).trim() : '';
             const imageUrl = rawImg ? normalizeImageUrl(rawImg) : '';
-            if (!text && !imageUrl) return;
+            const rawVid = row.c[14]?.v != null ? String(row.c[14].v).trim() : '';
+            const videoUrl = rawVid && /^https?:\/\//i.test(rawVid) ? rawVid : '';
+            if (!text && !imageUrl && !videoUrl) return;
 
             const expiresAt = parseSheetDate(row.c[12]?.v);
             if (!expiresAt || expiresAt.getTime() <= now) return;
@@ -2045,6 +2166,7 @@ const PostsModule = {
                 category,
                 message: text,
                 imageUrl,
+                videoUrl,
                 lat,
                 lng,
                 storeId,
@@ -2074,6 +2196,7 @@ const PostsModule = {
                         timestamp:  p.timestamp,
                         message:    p.message,
                         imageUrl:   p.imageUrl,
+                        videoUrl:   p.videoUrl || '',
                         category:   p.category,
                         role:       p.role,
                         sourceType: p.sourceType,
@@ -3008,13 +3131,18 @@ const UIModule = {
             emoji.innerText = spot.emoji;
             clip.appendChild(emoji);
 
-            if (spot.imageUrl) {
+            const liveThumb = (spot.livePost && spot.livePost.imageUrl) ? spot.livePost.imageUrl : '';
+            const pinImgUrl = liveThumb || spot.imageUrl;
+            if (pinImgUrl) {
                 const img = new Image();
-                img.src = spot.imageUrl;
+                img.src = pinImgUrl;
                 img.className = 'marker-image';
                 img.style.display = 'none';
                 img.onload = () => { img.style.display = 'block'; emoji.style.display = 'none'; };
                 clip.appendChild(img);
+            }
+            if (spot.livePost && spot.livePost.videoUrl) {
+                appendMarkerVideoPlayOverlay(clip);
             }
             inner.appendChild(clip);
 
@@ -3077,9 +3205,16 @@ const UIModule = {
                 img.alt = '';
                 img.style.cssText = 'width:100%;height:100%;object-fit:cover;border-radius:50%;';
                 img.onerror = () => {
-                    wrap.innerHTML = '<span style="font-size:20px;">📍</span>';
+                    wrap.innerHTML = lp.videoUrl
+                        ? '<span style="font-size:20px;">🎬</span>'
+                        : '<span style="font-size:20px;">📍</span>';
+                    if (lp.videoUrl) appendMarkerVideoPlayOverlay(wrap);
                 };
                 wrap.appendChild(img);
+                if (lp.videoUrl) appendMarkerVideoPlayOverlay(wrap);
+            } else if (lp.videoUrl) {
+                wrap.innerHTML = '<span style="font-size:22px;">🎬</span>';
+                appendMarkerVideoPlayOverlay(wrap);
             } else {
                 wrap.innerHTML = '<span style="font-size:22px;">📍</span>';
             }
@@ -3103,9 +3238,7 @@ const UIModule = {
             el.appendChild(pin);
 
             const msgShort = lp.message ? escapeHtml(lp.message.substring(0, 80)) : '';
-            const imgHtml = lp.imageUrl
-                ? `<img src="${escapeHtml(lp.imageUrl)}" alt="" style="max-width:220px;border-radius:8px;margin-top:6px"/>`
-                : '';
+            const imgHtml = livePopupMediaHtml(lp);
             const popupHtml = `<div style="max-width:240px;font-size:13px;line-height:1.4">
                 <div style="font-weight:bold;color:${clr}">${escapeHtml(lp.category || '')} · ${liveRoleJa(lp.role)}</div>
                 <div style="font-size:11px;color:#888;margin-top:2px">${timeAgo(lp.timestamp)}</div>
@@ -3265,7 +3398,7 @@ const UIModule = {
                 const timeStr = timeAgo(lp.timestamp);
                 const safeMsg = lp.message
                     ? lp.message.substring(0, 52).replace(/</g, '&lt;').replace(/>/g, '&gt;')
-                    : (lp.imageUrl ? '📸 画像あり（詳細で表示）' : '');
+                    : (lp.videoUrl ? '🎬 動画あり（詳細で表示）' : (lp.imageUrl ? '📸 画像あり（詳細で表示）' : ''));
                 const cat = lp.category ? escapeHtml(lp.category) : '';
                 livePostHtml = `<div class="card-live-post card-live-post--compact">
                     <div class="card-live-compact-meta">
@@ -3324,7 +3457,7 @@ const UIModule = {
      *
      * 優先順: LIVE投稿（新しい順）→ 通常news
      * 各要素:
-     *   { type:'live'|'news', spot, text, imageUrl, timeStr }
+     *   { type:'live'|'news', spot, text, imageUrl, videoUrl, timeStr }
      */
     _buildTickerList() {
         const liveItems = [];
@@ -3339,8 +3472,9 @@ const UIModule = {
                 liveItems.push({
                     type:     'live',
                     spot,
-                    text:     lp.message || '（画像投稿）',
+                    text:     liveFallbackText(lp),
                     imageUrl: lp.imageUrl || '',
+                    videoUrl: lp.videoUrl || '',
                     timeStr:  timeAgo(lp.timestamp),
                     sortKey:  lp.timestamp.getTime()
                 });
@@ -3352,8 +3486,9 @@ const UIModule = {
             liveItems.push({
                 type:     'live_map',
                 post:     lp,
-                text:     lp.message || '（画像投稿）',
+                text:     liveFallbackText(lp),
                 imageUrl: lp.imageUrl || '',
+                videoUrl: lp.videoUrl || '',
                 timeStr:  timeAgo(lp.timestamp),
                 sortKey:  lp.timestamp.getTime()
             });
@@ -3414,16 +3549,24 @@ const UIModule = {
                 ticker.classList.add('live-mode');
                 iconArea.innerHTML = '<span class="ticker-live-dot"></span>';
 
-                if (item.imageUrl) {
-                    thumb.src = item.imageUrl;
-                    thumb.style.display = 'block';
-                    thumb._liveUrl = item.imageUrl;
+                if (item.imageUrl || item.videoUrl) {
+                    if (item.imageUrl) {
+                        thumb.src = item.imageUrl;
+                        thumb.style.display = 'block';
+                    } else {
+                        thumb.removeAttribute('src');
+                        thumb.style.display = 'block';
+                    }
+                    thumb._liveUrl = item.imageUrl || '';
+                    thumb._liveVideoUrl = item.videoUrl ? normalizeVideoPlayUrl(item.videoUrl) : '';
                     const brd = item.type === 'live_map'
                         ? (LIVE_MARKER_COLOR_BY_ROLE[item.post.role] || '#FF3B6B')
                         : '#2196F3';
                     thumb.style.borderColor = brd;
                 } else {
                     thumb.style.display = 'none';
+                    thumb._liveUrl = '';
+                    thumb._liveVideoUrl = '';
                 }
                 textEl.innerText = item.text;
                 if (item.type === 'live') {
@@ -3453,7 +3596,9 @@ const UIModule = {
     // サムネクリック → ライトボックス
     _onTickerThumbClick() {
         const thumb = document.getElementById('ticker-live-thumb');
-        if (thumb?._liveUrl) this.openLightbox(thumb._liveUrl);
+        if (thumb && (thumb._liveUrl || thumb._liveVideoUrl)) {
+            this.openLightbox(thumb._liveUrl || '', thumb._liveVideoUrl || '');
+        }
     },
 
     openNewsList() {
@@ -3475,12 +3620,10 @@ const UIModule = {
 
             if (item.type === 'live') {
                 div.onclick = () => { App.selectSpot(item.spot); this.closeNewsList(null, true); };
-                const safeUrl = item.imageUrl ? item.imageUrl.replace(/'/g, '%27') : '';
-                const thumbHtml = item.imageUrl
-                    ? `<img src="${item.imageUrl}" class="news-item-live-thumb"
-                           onclick="event.stopPropagation(); UIModule.openLightbox('${safeUrl}')"
-                           onerror="this.style.display='none'">`
-                    : `<div class="news-item-icon news-item-type-live"><i class="fas fa-circle" style="font-size:10px;"></i></div>`;
+                const thumbHtml = liveNewsThumbHtml({
+                    imageUrl: item.imageUrl,
+                    videoUrl: item.videoUrl
+                });
                 div.innerHTML = `
                     ${thumbHtml}
                     <div style="flex:1; min-width:0;">
@@ -3503,13 +3646,10 @@ const UIModule = {
                     }
                     this.closeNewsList(null, true);
                 };
-                const safeUrl = item.imageUrl ? item.imageUrl.replace(/'/g, '%27') : '';
-                const thumbHtml = item.imageUrl
-                    ? `<img src="${item.imageUrl}" class="news-item-live-thumb"
-                           style="border-color:${LIVE_MARKER_COLOR_BY_ROLE[lp.role] || '#666'}"
-                           onclick="event.stopPropagation(); UIModule.openLightbox('${safeUrl}')"
-                           onerror="this.style.display='none'">`
-                    : `<div class="news-item-icon news-item-type-live"><i class="fas fa-circle" style="font-size:10px;"></i></div>`;
+                const thumbHtml = liveNewsThumbHtml({
+                    imageUrl: item.imageUrl,
+                    videoUrl: item.videoUrl
+                }, `border-color:${LIVE_MARKER_COLOR_BY_ROLE[lp.role] || '#666'}`);
                 const title = `${escapeHtml(lp.category || '')} · ${escapeHtml(liveRoleJa(lp.role))}`;
                 div.innerHTML = `
                     ${thumbHtml}
@@ -3612,12 +3752,7 @@ const UIModule = {
         if (spot.livePost) {
             const lp = spot.livePost;
             const timeStr = timeAgo(lp.timestamp);
-            const safeUrl = lp.imageUrl ? lp.imageUrl.replace(/'/g, '%27') : '';
-            const imgHtml = lp.imageUrl
-                ? `<img src="${lp.imageUrl}" class="modal-live-image"
-                    onclick="UIModule.openLightbox('${safeUrl}')"
-                    onerror="this.style.display='none'">`
-                : '';
+            const imgHtml = liveModalMediaHtml(lp);
             const safeMsg = lp.message
                 ? lp.message.replace(/</g, '&lt;').replace(/>/g, '&gt;')
                 : '';
@@ -3728,19 +3863,47 @@ const UIModule = {
 
     // ---- ライトボックス (LIVE画像拡大) ----
 
-    openLightbox(url) {
+    openLightbox(url, videoUrl) {
         const overlay = document.getElementById('lightbox-overlay');
         const img = document.getElementById('lightbox-img');
-        if (!overlay || !img) return;
-        img.src = url;
+        const vid = document.getElementById('lightbox-video');
+        if (!overlay) return;
+        const playUrl = videoUrl ? normalizeVideoPlayUrl(videoUrl) : '';
+        if (playUrl && vid) {
+            if (img) {
+                img.src = '';
+                img.style.display = 'none';
+            }
+            vid.style.display = 'block';
+            vid.poster = url || '';
+            vid.src = playUrl;
+        } else if (img) {
+            if (vid) {
+                vid.pause();
+                vid.removeAttribute('src');
+                vid.removeAttribute('poster');
+                vid.style.display = 'none';
+                try { vid.load(); } catch (_) { /* ignore */ }
+            }
+            img.style.display = 'block';
+            img.src = url || '';
+        }
         overlay.classList.add('open');
     },
 
     closeLightbox() {
         const overlay = document.getElementById('lightbox-overlay');
         const img = document.getElementById('lightbox-img');
+        const vid = document.getElementById('lightbox-video');
         if (overlay) overlay.classList.remove('open');
         if (img) img.src = '';
+        if (vid) {
+            vid.pause();
+            vid.removeAttribute('src');
+            vid.removeAttribute('poster');
+            vid.style.display = 'none';
+            try { vid.load(); } catch (_) { /* ignore */ }
+        }
     }
 };
 
