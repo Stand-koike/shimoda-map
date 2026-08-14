@@ -3,7 +3,12 @@
  * LINE → GAS → Google Sheets（黒船祭 LIVEマップ / 複数ロール投稿）
  * ============================================================
  *
- * 【秘密情報・運用（本番）】
+ * 【GAS への貼り付け — 重要】
+ *   このファイルの内容は GAS プロジェクト内の .gs に **1つだけ** 置く（追記しない・全文置き換え）。
+ *   古い webhook.gs 等を残したまま新コードを貼ると
+ *   「Identifier 'WEBHOOK_CONFIG' has already been declared」で doPost・ポーリングとも全滅する。
+ *   左サイドバーの .gs 一覧で `WEBHOOK_CONFIG` / `doPost` が2ファイルに無いか確認し、重複は削除。
+ *
  *   実 ID・LINE トークン・管理者 ID 等は **ソースに書かない**。
  *   GAS の「プロジェクトの設定」→「スクリプトプロパティ」に登録する（キー一覧は logWebhookScriptPropertyKeys を実行してログ確認）。
  *
