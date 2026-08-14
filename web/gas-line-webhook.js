@@ -32,6 +32,8 @@ const WEBHOOK_CONFIG = {
   SHEET_ID: '',
   LINE_CHANNEL_ACCESS_TOKEN: ''
 };
+/** GAS 貼り付け確認用。runWebhookHealthCheck のログに出る（main の gas-line-webhook.js と一致させる） */
+const WEBHOOK_SCRIPT_VERSION = '2026-08-14-diagnostics1';
 /** setup Sheets でアクティブ表から補完した ID（その実行中だけ） */
 var __webhookSheetIdRuntimeOverride_ = '';
 
@@ -1491,6 +1493,15 @@ function deletePending(userId) {
  * （画像受信時に自分の pending を先に利用させるため）。
  */
 function flushExpiredPending(excludeUserId) {
+  try {
+    flushExpiredPendingCore_(excludeUserId);
+  } catch (err) {
+    webhookExecErr_('[flushExpiredPending] ' + String(err && err.message ? err.message : err));
+    throw err;
+  }
+}
+
+function flushExpiredPendingCore_(excludeUserId) {
   invalidatePendingRowsCache_();
   const sheet = getPendingSheet(false);
   if (!sheet) return;
@@ -2152,23 +2163,75 @@ function logWebhookScriptPropertyKeys() {
  * LINEで反応がなくてもGASに記録がない場合は、Webhook URL が別デプロイを指している可能性あり。
  */
 function runWebhookHealthCheck() {
+  resetWebhookRequestCache_();
+  webhookExecLog_('[health] WEBHOOK_SCRIPT_VERSION=' + WEBHOOK_SCRIPT_VERSION);
+  webhookExecLog_(
+    '[health] 貼り付け確認: gas-line-webhook.js 全体（約2220行）が GAS に入っているか。' +
+    ' 途中で切れていると doPost・ポーリングとも SyntaxError で全滅します。'
+  );
+  webhookExecLog_(
+    '[health] ランタイム: 「プロジェクトの設定」→ V8 を選択（Rhino だと ?. 等で読み込み失敗します）'
+  );
+
   var idSet = !!getWebhookSheetId_();
   webhookExecLog_('[health] SHEET_ID スクリプトプロパティ: ' + (idSet ? 'あり' : 'なし'));
   if (!idSet) {
-    webhookExecLog_('[health] ここで止まります。プロジェクトの設定 → スクリプトプロパティに SHEET_ID を追加してください。');
+    webhookExecErr_('[health] 停止: プロジェクトの設定 → スクリプトプロパティに SHEET_ID を追加してください。');
     return;
   }
+
+  var ss;
   try {
-    var ss = getWebhookSpreadsheetCached_();
-    webhookExecLog_('[health] スプレッドシートを開けました: ' + ss.getName());
-    var bs = getBotSessionSheet(true);
-    webhookExecLog_('[health] bot_sessions 最終行: ' + bs.getLastRow());
+    ss = getWebhookSpreadsheetCached_();
+    webhookExecLog_('[health] スプレッドシートを開けました: ' + ss.getName() + ' (id末尾…' + String(getWebhookSheetId_()).slice(-6) + ')');
   } catch (e) {
     webhookExecErr_('[health] スプレッドシート失敗: ' + String(e.message || e));
+    webhookExecErr_(
+      '[health] 対処: SHEET_ID が Pages の secrets と同じか、デプロイした Google アカウントに表の「編集者」権限があるか確認'
+    );
     return;
   }
+
+  var requiredSheets = ['posts', 'user_map', 'bot_sessions', 'pending_posts'];
+  for (var si = 0; si < requiredSheets.length; si++) {
+    var sname = requiredSheets[si];
+    var sh = ss.getSheetByName(sname);
+    webhookExecLog_(
+      '[health] シート「' + sname + '」: ' +
+        (sh ? 'あり（最終行 ' + sh.getLastRow() + '）' : 'なし → setupSheets() を1回実行')
+    );
+  }
+
   var tok = getWebhookLineToken_();
   webhookExecLog_('[health] LINE_CHANNEL_ACCESS_TOKEN: ' + (tok ? 'あり（長さ ' + tok.length + '）' : 'なし'));
+  if (!tok) {
+    webhookExecErr_('[health] 停止: スクリプトプロパティに LINE_CHANNEL_ACCESS_TOKEN を追加してください。');
+    return;
+  }
+
+  try {
+    var lineRes = UrlFetchApp.fetch('https://api.line.me/v2/bot/info', {
+      method: 'GET',
+      headers: { Authorization: 'Bearer ' + tok },
+      muteHttpExceptions: true
+    });
+    var lineCode = lineRes.getResponseCode();
+    webhookExecLog_('[health] LINE bot/info http=' + lineCode);
+    if (lineCode < 200 || lineCode >= 300) {
+      webhookExecErr_('[health] LINE トークン無効の可能性: ' + lineRes.getContentText().slice(0, 300));
+    }
+  } catch (lineErr) {
+    webhookExecErr_('[health] LINE API 呼び出し失敗: ' + String(lineErr.message || lineErr));
+  }
+
+  try {
+    flushExpiredPendingCore_();
+    webhookExecLog_('[health] flushExpiredPending（ポーリング本体）: OK');
+  } catch (flushErr) {
+    webhookExecErr_('[health] flushExpiredPending 失敗（ポーリングと同じ原因）: ' + String(flushErr.message || flushErr));
+  }
+
+  webhookExecLog_('[health] 診断完了。ERR 行があればそこを修正後、ウェブアプリを「新バージョン」で再デプロイし LINE Webhook URL を更新してください。');
 }
 
 // ==================================================================
