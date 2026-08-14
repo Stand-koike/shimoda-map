@@ -26,17 +26,39 @@
   <main>
     <!-- Hero -->
     <section class="section section--hero" aria-labelledby="hero-title">
-      <div class="hero__glow" aria-hidden="true"></div>
-      <div class="container hero__content">
-        <p class="eyebrow text-light">下田八幡神社例大祭</p>
-        <h1 class="display-xl text-light" id="hero-title">太鼓の音が、<br>町をひとつにする。</h1>
-        <p class="body-l text-light text-secondary" style="max-width: 640px; margin-top: 24px;">
-          昼間は各町の云われのある人形を乗せ、夜は鮮やかな提灯を飾り、町内中に太鼓の音を響かせます。
-        </p>
-        <div class="hero__actions">
-          <a class="btn btn--light" href="#gallery">十四番を見る</a>
-          <a class="btn btn--secondary" href="#story" style="color: rgba(255,255,255,0.92);">ストーリー</a>
+      <div class="hero-carousel" id="hero-carousel" aria-roledescription="carousel" aria-label="太鼓台スライドショー">
+        <div class="hero-carousel__ambient" aria-hidden="true"></div>
+
+        <div class="hero-carousel__stage">
+          <div class="hero-carousel__track" id="hero-track"></div>
         </div>
+
+        <div class="hero-carousel__scrim" aria-hidden="true"></div>
+
+        <div class="container hero__content">
+          <p class="eyebrow text-light">下田八幡神社例大祭</p>
+          <p class="hero-carousel__label body-s text-light" id="hero-float-label" aria-live="polite">一番 — 中原町 — 鷹</p>
+          <h1 class="display-xl text-light" id="hero-title">太鼓の音が、<br>町をひとつにする。</h1>
+          <p class="body-l text-light text-secondary hero__lede">
+            昼間は各町の云われのある人形を乗せ、夜は鮮やかな提灯を飾り、町内中に太鼓の音を響かせます。
+          </p>
+          <div class="hero__actions">
+            <a class="btn btn--light" href="#gallery">十四番を見る</a>
+            <a class="btn btn--secondary hero__link-light" href="#story">ストーリー</a>
+          </div>
+        </div>
+
+        <div class="hero-carousel__controls">
+          <button type="button" class="hero-carousel__btn hero-carousel__btn--prev" aria-label="前の太鼓台">
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5 7 10l5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="hero-carousel__dots" id="hero-dots" role="tablist" aria-label="太鼓台を選択"></div>
+          <button type="button" class="hero-carousel__btn hero-carousel__btn--next" aria-label="次の太鼓台">
+            <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M7.5 4.5 13 10l-5.5 5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </div>
+
+        <p class="hero-carousel__hint body-s text-light">スワイプで十四番を巡る</p>
       </div>
     </section>
 
@@ -426,6 +448,7 @@
     </div>
   </footer>
 
+  <script src="hero-carousel.js" defer></script>
   <script>
     (function () {
       var nav = document.getElementById('nav');
