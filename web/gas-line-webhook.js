@@ -24,7 +24,7 @@
  *   posts シートの isVisible を FALSE にするとマップから非表示。
  *
  * 【マップの動画再生】
- *   doGet(?action=video&id=FILE_ID) が先頭数秒分の mp4 を HtmlService の <video autoplay muted> で返す。
+ *   doGet(?action=clip&id=FILE_ID&callback=fn) が先頭約3秒分の mp4 を JSONP（base64）で返す。
  *   GitHub Pages から Drive 直リンクは CORP でブロックされるため、このウェブアプリの再デプロイが必須。
  *   コードを貼り替えたら「デプロイ → 新しいデプロイ」（または既存ウェブアプリの「新しいバージョン」）。
  */
@@ -531,10 +531,32 @@ function doPost(e) {
 function doGet(e) {
   e = e || {};
   var p = e.parameter || {};
+  if (p.action === 'clip' && p.id) {
+    return serveLiveVideoClipJsonp_(p.id, p.callback);
+  }
   if (p.action === 'video' && p.id) {
     return serveDriveVideoForMap_(p.id);
   }
   return ContentService.createTextOutput('OK').setMimeType(ContentService.MimeType.TEXT);
+}
+
+/**
+ * マップから JSONP で先頭クリップ（base64）を取る。
+ * GitHub Pages は Drive を直接読めない。HtmlService iframe の google.script.run / postMessage も届かない。
+ */
+function serveLiveVideoClipJsonp_(fileId, callback) {
+  var cb = String(callback || 'liveVideoClipCb').replace(/[^\w$]/g, '');
+  if (!cb) cb = 'liveVideoClipCb';
+  try {
+    var b64 = getLiveVideoClipBase64(fileId);
+    return ContentService
+      .createTextOutput(cb + '(' + JSON.stringify({ ok: true, b64: b64 }) + ');')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  } catch (err) {
+    return ContentService
+      .createTextOutput(cb + '(' + JSON.stringify({ ok: false, error: String(err && err.message ? err.message : err) }) + ');')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
 }
 
 /**
@@ -581,8 +603,25 @@ function getLiveVideoClipBase64(fileId) {
   }
   var full = file.getBlob().getBytes();
   var maxBytes = 1500000;
-  var bytes = full.length > maxBytes ? Array.prototype.slice.call(full, 0, maxBytes) : full;
+  var bytes = sliceByteArray_(full, maxBytes);
   return Utilities.base64Encode(bytes);
+}
+
+function sliceByteArray_(bytes, maxBytes) {
+  if (!bytes || bytes.length <= maxBytes) return bytes;
+  try {
+    if (typeof bytes.slice === 'function') {
+      var sliced = bytes.slice(0, maxBytes);
+      if (sliced && sliced.length === maxBytes) return sliced;
+    }
+  } catch (e1) { /* ignore */ }
+  try {
+    var fromProto = Array.prototype.slice.call(bytes, 0, maxBytes);
+    if (fromProto && fromProto.length === maxBytes) return fromProto;
+  } catch (e2) { /* ignore */ }
+  var out = [];
+  for (var i = 0; i < maxBytes; i++) out.push(bytes[i]);
+  return out;
 }
 
 /** LINE_MAP_IMAGES 配下、またはリンク共有済みの Drive 動画のみ配信 */
