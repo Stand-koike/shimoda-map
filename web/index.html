@@ -1767,7 +1767,10 @@ function parseLiveMediaFromRaw(raw) {
 function normalizeVideoPlayUrl(raw) {
     if (typeof raw !== 'string') return '';
     const s = raw.trim();
-    if (!s || !/^https?:\/\//i.test(s)) return '';
+    if (!s || !/^https?:\/\//i.test(s)) {
+        if (/^(?:\.\/)?[\w./-]+\.(?:mp4|webm|ogg)$/i.test(s) && s.indexOf('..') < 0) return s;
+        return '';
+    }
     const driveId = extractDriveFileId_(s);
     if (driveId) return `https://drive.google.com/uc?export=download&id=${driveId}`;
     return s.split('#')[0];
@@ -2134,6 +2137,9 @@ const PostsModule = {
         script.onerror = () => {
             clearTimeout(this._fetchTimeout);
             console.warn('[PostsModule] posts シート取得失敗');
+            this._injectLiveVideoDemo();
+            this._attachLiveToSpots();
+            if (typeof App !== 'undefined' && App._refreshUI) App._refreshUI();
         };
         document.body.appendChild(script);
     },
@@ -2143,6 +2149,7 @@ const PostsModule = {
         const { postsByStoreId, liveStandalonePosts } = this._parse(json);
         State.postsByStoreId = postsByStoreId;
         State.liveStandalonePosts = liveStandalonePosts;
+        this._injectLiveVideoDemo();
 
         PostsModule._attachLiveToSpots();
 
@@ -2257,6 +2264,35 @@ const PostsModule = {
 
         mobileList.sort((a, b) => b.timestamp - a.timestamp);
         return { postsByStoreId, liveStandalonePosts: mobileList };
+    },
+
+    /** ?liveVideoDemo=1 でマップ中央に動画ピンを出す（GAS / シート不要） */
+    _injectLiveVideoDemo() {
+        const q = new URLSearchParams(location.search);
+        if (q.get('liveVideoDemo') !== '1' && q.get('demo') !== 'livevideo') return;
+
+        const center = (CONFIG.MAP_IMAGE && CONFIG.MAP_IMAGE.center) || [138.9479213, 34.6745551];
+        const demo = {
+            postId:     '__live_video_demo__',
+            role:       'contributor',
+            sourceType: 'gps',
+            category:   '景色',
+            message:    '【デモ】5秒の動画です。再生は先頭3秒で止まります',
+            imageUrl:   'demo/live-video-poster.jpg',
+            videoUrl:   'demo/live-video.mp4',
+            lat:        Number(center[1]),
+            lng:        Number(center[0]),
+            timestamp:  new Date(),
+            expiresAt:  new Date(Date.now() + 24 * 60 * 60 * 1000)
+        };
+        const list = (State.liveStandalonePosts || []).filter(p => p.postId !== demo.postId);
+        list.unshift(demo);
+        State.liveStandalonePosts = list;
+        if (typeof App !== 'undefined' && App._selectedCategories) {
+            App._selectedCategories.add(demo.category);
+            App._seenFilterCategories.add(demo.category);
+        }
+        console.info('[PostsModule] liveVideoDemo ピンを表示しました');
     },
 
     startPolling() {
@@ -4021,6 +4057,7 @@ const App = {
 
         if (!this._postsInitialized) {
             this._postsInitialized = true;
+            PostsModule._injectLiveVideoDemo();
             PostsModule.fetch();
             PostsModule.startPolling();
             EventScheduleModule.fetch();
