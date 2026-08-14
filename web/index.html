@@ -1772,7 +1772,7 @@ function parseLiveMediaFromRaw(raw) {
     if (!s) return { imageUrl: '', videoUrl: '' };
 
     const hashM = s.match(/#livevideo=([a-zA-Z0-9_-]+)/);
-    const gasPlayM = s.match(/https:\/\/script\.google\.com\/macros\/s\/[^\s]+/);
+    const gasPlayM = s.match(/https:\/\/script\.google\.com(?:\/a\/[^/\s]+)?\/macros\/s\/[^\s]+/);
     const fileM = s.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
     const marked = !!(hashM || gasPlayM || (fileM && /thumbnail\?id=/.test(s)));
     const firstToken = (s.match(/https?:\/\/[^\s]+/) || [s])[0];
@@ -1809,7 +1809,7 @@ function normalizeVideoPlayUrl(raw) {
         if (/^(?:\.\/)?[\w./-]+\.(?:mp4|webm|ogg)$/i.test(s) && s.indexOf('..') < 0) return s;
         return '';
     }
-    if (/script\.google\.com\/macros\/s\//.test(s) && /action=video/.test(s)) {
+    if (/script\.google\.com(?:\/a\/[^/]+)?\/macros\/s\//.test(s) && /action=video/.test(s)) {
         return s.split('#')[0];
     }
     const driveId = extractDriveFileId_(s);
