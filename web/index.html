@@ -1558,7 +1558,7 @@
 <!-- ライトボックス (LIVE画像・動画拡大) -->
 <div class="lightbox-overlay" id="lightbox-overlay" onclick="UIModule.closeLightbox()">
     <img class="lightbox-img" id="lightbox-img" src="" alt="">
-    <video class="lightbox-video" id="lightbox-video" controls playsinline muted preload="metadata" style="display:none" onclick="event.stopPropagation()"></video>
+    <video class="lightbox-video live-clip-video" id="lightbox-video" controls playsinline muted preload="metadata" style="display:none" onclick="event.stopPropagation()"></video>
 </div>
 
 <!-- secrets / config は <head> で読み込み済み -->
@@ -1729,13 +1729,38 @@ function extractDriveFileId_(raw) {
     const m1 = s.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
     if (m1) return m1[1];
     try {
-        const u = new URL(s);
+        const u = new URL(s.split(/\s+/)[0]);
         if (u.hostname === 'drive.google.com' || u.hostname === 'drive.usercontent.google.com') {
             const id = u.searchParams.get('id');
             if (id && /^[a-zA-Z0-9_-]+$/.test(id)) return id;
         }
     } catch (_) { /* ignore */ }
     return null;
+}
+
+const LIVE_VIDEO_PLAY_SECONDS = 3;
+
+/**
+ * posts.imageUrl からサムネと動画を取り出す。
+ * 動画は列を増やさず、#livevideo=FILE_ID または隣の file/d URL で識別する。
+ */
+function parseLiveMediaFromRaw(raw) {
+    const s = typeof raw === 'string' ? raw.trim() : '';
+    if (!s) return { imageUrl: '', videoUrl: '' };
+
+    const hashM = s.match(/#livevideo=([a-zA-Z0-9_-]+)/);
+    const fileM = s.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+    const marked = !!(hashM || (fileM && /thumbnail\?id=/.test(s)));
+    const firstToken = (s.match(/https?:\/\/[^\s]+/) || [s])[0];
+    const imageUrl = normalizeImageUrl(firstToken.split('#')[0]);
+    if (!marked) {
+        return { imageUrl: imageUrl || (raw ? normalizeImageUrl(s) : ''), videoUrl: '' };
+    }
+    const videoFileId = (hashM && hashM[1]) || (fileM && fileM[1]) || '';
+    return {
+        imageUrl,
+        videoUrl: videoFileId ? `https://drive.google.com/file/d/${videoFileId}/view` : ''
+    };
 }
 
 /** Drive 共有リンクを <video src> 向けのダウンロード URL に揃える */
@@ -1745,7 +1770,23 @@ function normalizeVideoPlayUrl(raw) {
     if (!s || !/^https?:\/\//i.test(s)) return '';
     const driveId = extractDriveFileId_(s);
     if (driveId) return `https://drive.google.com/uc?export=download&id=${driveId}`;
-    return s;
+    return s.split('#')[0];
+}
+
+function installLiveVideoClipLimiter() {
+    if (window.__liveVideoClipLimiter) return;
+    window.__liveVideoClipLimiter = true;
+    const onTick = (e) => {
+        const v = e.target;
+        if (!v || v.tagName !== 'VIDEO') return;
+        if (!v.classList.contains('live-clip-video')) return;
+        if (v.currentTime > LIVE_VIDEO_PLAY_SECONDS) {
+            v.pause();
+            v.currentTime = LIVE_VIDEO_PLAY_SECONDS;
+        }
+    };
+    document.addEventListener('timeupdate', onTick, true);
+    document.addEventListener('seeked', onTick, true);
 }
 
 function liveFallbackText(lp) {
@@ -1772,7 +1813,7 @@ function livePopupMediaHtml(lp) {
     const playUrl = lp.videoUrl ? normalizeVideoPlayUrl(lp.videoUrl) : '';
     if (playUrl) {
         const poster = thumb ? ` poster="${escapeHtml(thumb)}"` : '';
-        return `<video src="${escapeHtml(playUrl)}"${poster} controls playsinline muted preload="none" style="max-width:220px;width:100%;border-radius:8px;margin-top:6px;display:block"></video>`;
+        return `<video class="live-clip-video" src="${escapeHtml(playUrl)}"${poster} controls playsinline muted preload="none" style="max-width:220px;width:100%;border-radius:8px;margin-top:6px;display:block"></video>`;
     }
     if (thumb) {
         return `<img src="${escapeHtml(thumb)}" alt="" style="max-width:220px;border-radius:8px;margin-top:6px"/>`;
@@ -1785,7 +1826,7 @@ function liveModalMediaHtml(lp) {
     const playUrl = lp.videoUrl ? normalizeVideoPlayUrl(lp.videoUrl) : '';
     if (playUrl) {
         const poster = thumb ? ` poster="${escapeHtml(thumb)}"` : '';
-        return `<video class="modal-live-image modal-live-video" src="${escapeHtml(playUrl)}"${poster} controls playsinline muted preload="metadata" onclick="event.stopPropagation()"></video>`;
+        return `<video class="modal-live-image modal-live-video live-clip-video" src="${escapeHtml(playUrl)}"${poster} controls playsinline muted preload="metadata" onclick="event.stopPropagation()"></video>`;
     }
     if (thumb) {
         const safeUrl = escapeAttrUrl_(thumb);
@@ -2116,7 +2157,8 @@ const PostsModule = {
     },
 
     /**
-     * 列: postId userId role sourceType category text imageUrl lat lng storeId spotId createdAt expiresAt isVisible [videoUrl]
+     * 列: postId userId role sourceType category text imageUrl lat lng storeId spotId createdAt expiresAt isVisible
+     * 動画は imageUrl 内の #livevideo= で識別（列追加なし）。旧ブランチの O列 videoUrl があれば読む。
      */
     _parse(json) {
         const postsByStoreId = {};
@@ -2135,9 +2177,10 @@ const PostsModule = {
 
             const text = row.c[5]?.v != null ? String(row.c[5].v).trim() : '';
             const rawImg = row.c[6]?.v != null ? String(row.c[6].v).trim() : '';
-            const imageUrl = rawImg ? normalizeImageUrl(rawImg) : '';
-            const rawVid = row.c[14]?.v != null ? String(row.c[14].v).trim() : '';
-            const videoUrl = rawVid && /^https?:\/\//i.test(rawVid) ? rawVid : '';
+            const parsed = parseLiveMediaFromRaw(rawImg);
+            const imageUrl = parsed.imageUrl;
+            const rawVidCol = row.c[14]?.v != null ? String(row.c[14].v).trim() : '';
+            const videoUrl = parsed.videoUrl || (rawVidCol && /^https?:\/\//i.test(rawVidCol) ? rawVidCol : '');
             if (!text && !imageUrl && !videoUrl) return;
 
             const expiresAt = parseSheetDate(row.c[12]?.v);
@@ -3875,8 +3918,10 @@ const UIModule = {
                 img.style.display = 'none';
             }
             vid.style.display = 'block';
+            vid.classList.add('live-clip-video');
             vid.poster = url || '';
             vid.src = playUrl;
+            try { vid.currentTime = 0; } catch (_) { /* ignore */ }
         } else if (img) {
             if (vid) {
                 vid.pause();
@@ -3951,6 +3996,7 @@ const App = {
     },
 
     init() {
+        installLiveVideoClipLimiter();
         // ?refresh=1 パラメータで強制再取得 (AppSheet Webhook から呼び出し可能)
         if (new URLSearchParams(location.search).get('refresh') === '1') {
             State.lastDataHash = '';

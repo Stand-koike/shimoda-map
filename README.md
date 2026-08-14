@@ -38,7 +38,7 @@ Google スプレッドシートをデータソースに、**イラスト地図**
 
 - GAS で `setupSheets()` を実行すると **`posts`** / **`venue_spots`** / **`bot_sessions`** / **`event_schedule`** などが作られます（既存 **`user_map`** は列拡張しても読み込み互換があります）。  
 - マップは **`posts`** シートのみを読みます（名前は `secrets.local.js` の `POSTS_SHEET` で変更可能、既定 `posts`）。  
-- **動画**: LINE から **3秒以内** の動画を投稿できます。マップ上はサムネイルのみ表示し、詳細／ポップアップで再生します（快適性のため長さを制限）。`posts.videoUrl` に本体、`posts.imageUrl` にサムネを保存します。既存シートは `setupSheets()` で `videoUrl` 列（O列）が補完されます。  
+- **動画（ブランチ検証）**: LINE の動画は長さで拒否せず受け付け、マップでは **先頭3秒だけ再生**します。シート列は増やさず、既存の `posts.imageUrl` にサムネ URL＋フラグメント `#livevideo=動画FILE_ID` を書き込みます（`<img>` にはフラグメントが送られないため、機能を取り下げてコードを戻してもサムネ表示は残ります。列の削除作業は不要です）。  
 - **モデレーション**: `posts.isVisible` を `FALSE` にするとブラウザ側で非表示になります（行削除も可）。  
 - **運営スポット**: `venue_spots` に `spotId,name,lat,lng,type` で会場ピンを登録してから、運営ロールが LINE で番号選択します。
 

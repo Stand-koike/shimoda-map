@@ -17,7 +17,7 @@
  *
  * 【ロールと投稿】
  *   店舗: 固定座標（スプレッドシート先頭シートの store_id と座標）。
- *   協力者: LINE 位置メッセージ後に短文テキスト → 写真または3秒以内の動画 → GPS 投稿。
+ *   協力者: LINE 位置メッセージ後に短文テキスト → 写真または動画 → GPS 投稿。
  *   運営（operator）: ソース先頭の ROLE_OPERATOR_ENABLED で再開予定（venue_spots 番号選択）。現状は無効。
  *
  * 【スプレッドシートでのモデレーション】
@@ -200,11 +200,10 @@ const PENDING_SHEET_NAME = 'pending_posts';
 
 const MAX_MESSAGE_LENGTH = 50;
 const MAX_IMAGE_SIZE_BYTES = 5 * 1024 * 1024;
-/** 投稿可能な動画の長さ（ミリ秒）。マップ快適性のため 3 秒に制限 */
-const MAX_VIDEO_DURATION_MS = 3000;
-/** 3秒動画でもエンコーダ誤差を見込む（ユーザー向け文言は「3秒」） */
-const MAX_VIDEO_DURATION_SLACK_MS = 200;
-const MAX_VIDEO_SIZE_BYTES = 8 * 1024 * 1024;
+/** GAS / Drive の実効上限。長さは制限せず、マップ側で先頭3秒だけ再生する */
+const MAX_VIDEO_SIZE_BYTES = 30 * 1024 * 1024;
+/** imageUrl に付与するフラグメント。列追加せず動画と写真を区別する（機能撤回時もシート変更不要） */
+const LIVE_VIDEO_URL_HASH = 'livevideo';
 const DRIVE_FOLDER_NAME = 'LINE_MAP_IMAGES';
 const PENDING_EXPIRE_MS = 1 * 60 * 1000;
 
@@ -273,11 +272,9 @@ function normalizeRegisterMenuTrigger_(text) {
 const MSG_LINE_REGISTRATION_PASSWORD_NEXT_ =
   '🔒 続けて登録パスワードをそのまま1通だけ送ってください。\n（やめるときは「登録解除」）';
 const MSG_LINE_REGISTERED_OPERATOR_OK_ =
-  '✅ 運営として登録しました。\n投稿の順番の例: 短文テキスト→📸写真または🎬動画3秒以内（どちらか一方でも可）→スポット番号→カテゴリです。';
+  '✅ 運営として登録しました。\n投稿の順番の例: 短文テキスト→📸写真または🎬動画（どちらか一方でも可）→スポット番号→カテゴリです。\n※動画はマップで先頭3秒だけ再生されます。';
 const MSG_LINE_REGISTERED_CONTRIBUTOR_OK_ =
-  '✅ 協力者として登録しました。\n投稿の順番: 📍位置情報 → 短文テキスト → 📸写真または🎬動画（3秒以内） → カテゴリ です。';
-const MSG_LINE_VIDEO_TOO_LONG_ =
-  '⚠️ 投稿できる動画は3秒以内です。\n3秒以内に撮り直して送ってください（マップ表示の快適さのため）。';
+  '✅ 協力者として登録しました。\n投稿の順番: 📍位置情報 → 短文テキスト → 📸写真または🎬動画 → カテゴリ です。\n※動画はマップで先頭3秒だけ再生されます。';
 
 /** 店舗登録: メニュー「店舗」またはキーワード「店／店舗」のあと、店舗名だけを促す */
 const MSG_LINE_STORE_AWAITING_NAME_AFTER_SHOP_ONLY_ =
@@ -491,7 +488,7 @@ function doPost(e) {
             replyToken,
             '⚠️ このメッセージ形式には未対応です（type: ' +
               String(msg.type || '?') +
-              '）。\n協力者の投稿の流れ: 「＋」→📍位置情報 → 短文テキスト → 📸写真または🎬動画（3秒以内） → カテゴリです。'
+              '）。\n協力者の投稿の流れ: 「＋」→📍位置情報 → 短文テキスト → 📸写真または🎬動画 → カテゴリです。'
           );
         }
       } catch (innerErr) {
@@ -682,31 +679,10 @@ function handleImageIncoming(userId, replyToken, messageId) {
     replyText(replyToken, '⚠️ 画像の取得に失敗しました。もう一度お試しください。');
     return;
   }
-  handleMediaIncoming(userId, replyToken, { imageUrl: imageUrl, videoUrl: '' });
-}
-
-function lineVideoDurationMs_(msg) {
-  const n = Number(msg && msg.duration);
-  if (!isFinite(n) || n <= 0) return NaN;
-  // LINE 仕様はミリ秒。一部クライアントの秒表記ゆれ（目安 3分=180秒以下）を補正する
-  if (n <= 180) return n * 1000;
-  return n;
+  handleMediaIncoming(userId, replyToken, { imageUrl: imageUrl });
 }
 
 function handleVideoIncoming(userId, replyToken, msg) {
-  const durationMs = lineVideoDurationMs_(msg);
-  if (!isFinite(durationMs) || durationMs <= 0) {
-    replyText(replyToken, MSG_LINE_VIDEO_TOO_LONG_);
-    return;
-  }
-  if (durationMs > MAX_VIDEO_DURATION_MS + MAX_VIDEO_DURATION_SLACK_MS) {
-    const sec = Math.round(durationMs / 100) / 10;
-    replyText(
-      replyToken,
-      MSG_LINE_VIDEO_TOO_LONG_ + '\n（受信した長さ: 約' + sec + '秒）'
-    );
-    return;
-  }
   let media;
   try {
     media = fetchLineVideoToDrive(msg.id);
@@ -714,7 +690,7 @@ function handleVideoIncoming(userId, replyToken, msg) {
     console.error('[handleVideoIncoming]', err);
     const detail = String(err && err.message ? err.message : err);
     if (detail.indexOf('サイズ上限') >= 0) {
-      replyText(replyToken, '⚠️ 動画ファイルが大きすぎます。3秒以内・より軽い動画を送ってください。');
+      replyText(replyToken, '⚠️ 動画ファイルが大きすぎます。より短い／軽い動画を送ってください。');
     } else {
       replyText(replyToken, '⚠️ 動画の取得に失敗しました。もう一度お試しください。');
     }
@@ -724,12 +700,12 @@ function handleVideoIncoming(userId, replyToken, msg) {
 }
 
 /**
- * 写真・動画共通の投稿フロー。videoUrl がある場合はマップ用サムネを imageUrl に入れる。
+ * 写真・動画共通の投稿フロー。
+ * 動画は imageUrl に #livevideo=FILE_ID を付けて既存列だけ使う（シート列は増やさない）。
  */
 function handleMediaIncoming(userId, replyToken, media) {
   const imageUrl = (media && media.imageUrl) ? String(media.imageUrl) : '';
-  const videoUrl = (media && media.videoUrl) ? String(media.videoUrl) : '';
-  const isVideo = !!videoUrl;
+  const isVideo = isLiveVideoImageUrl_(imageUrl);
   const mediaLabel = isVideo ? '🎬 動画' : '📸 写真';
 
   // メディア受信時は現在のユーザーの pending を先に使うため、自分自身をフラッシュ対象から除く
@@ -758,31 +734,31 @@ function handleMediaIncoming(userId, replyToken, media) {
     if (sess.payload.lat == null || sess.payload.lng == null) {
       replyText(
         replyToken,
-        '先に📍位置情報メッセージを送ってください。\n「位置を受け取りました」のあとは【順番: 短文テキスト→📸写真または🎬動画（3秒以内）→カテゴリ】です。'
+        '先に📍位置情報メッセージを送ってください。\n「位置を受け取りました」のあとは【順番: 短文テキスト→📸写真または🎬動画→カテゴリ】です。'
       );
       return;
     }
-    handleContributorMedia(userId, replyToken, user, { imageUrl: imageUrl, videoUrl: videoUrl });
+    handleContributorMedia(userId, replyToken, user, imageUrl);
     return;
   }
 
   if (user.role === ROLE_STORE) {
     const pendingForImg = loadPending(userId);
     if (pendingForImg && pendingForImg.message) {
-      mergeImageWithPendingThenAskCategory(userId, replyToken, user, imageUrl, videoUrl);
-    } else if (pendingForImg && (pendingForImg.imageUrl || pendingForImg.videoUrl)) {
-      savePending(userId, user.fixedStoreId || '', '', imageUrl, videoUrl);
+      mergeImageWithPendingThenAskCategory(userId, replyToken, user, imageUrl);
+    } else if (pendingForImg && pendingForImg.imageUrl) {
+      savePending(userId, user.fixedStoreId || '', '', imageUrl);
       replyText(replyToken,
         mediaLabel + 'を更新しました。（順番: テキスト→写真または動画）テキストを送るとセットで反映されます（' +
         (PENDING_EXPIRE_MS / 60000) + '分以内）\nテキスト不要ならそのまま待つとカテゴリ選択に進みます。');
     } else {
-      savePending(userId, user.fixedStoreId || '', '', imageUrl, videoUrl);
+      savePending(userId, user.fixedStoreId || '', '', imageUrl);
       replyText(replyToken,
         mediaLabel + 'を受け付けました。（順番: テキスト→写真または動画）テキストを送るとセットで反映されます（' +
         (PENDING_EXPIRE_MS / 60000) + '分以内）\nテキスト不要ならそのまま待つとカテゴリ選択に進みます。');
     }
   } else if (ROLE_OPERATOR_ENABLED && user.role === ROLE_OPERATOR) {
-    mergeImageWithPendingThenAskSpot(userId, replyToken, user, imageUrl, videoUrl);
+    mergeImageWithPendingThenAskSpot(userId, replyToken, user, imageUrl);
   }
 }
 
@@ -815,7 +791,7 @@ function handleLocationIncoming(userId, replyToken, lat, lng) {
       replyText(replyToken,
         `📍 位置情報を登録しました（${storeId}）\n` +
         `これでライブ投稿が可能になりました🎉\n\n` +
-        `投稿の順番: 短文テキスト → 📸写真または🎬動画（3秒以内） → カテゴリ（ボタン）です。\n` +
+        `投稿の順番: 短文テキスト → 📸写真または🎬動画 → カテゴリ（ボタン）です。\n` +
         `お店から離れた場所から投稿するときは、先に📍位置情報を送ってから、同じ順番でお願いします。`);
       return;
     }
@@ -827,7 +803,7 @@ function handleLocationIncoming(userId, replyToken, lat, lng) {
     // 位置付き投稿は「テキスト→写真」の順に統一するため、古い pending が残らないようクリアする
     deletePending(userId);
     setSession(userId, STEP_AWAITING_CONTENT, {
-      text: '', imageUrl: '', videoUrl: '', lat: latNum, lng: lngNum, spotId: '', spotName: ''
+      text: '', imageUrl: '', lat: latNum, lng: lngNum, spotId: '', spotName: ''
     });
     webhookExecLog_(
       '[loc] bot_sessions saved ok ' +
@@ -844,7 +820,7 @@ function handleLocationIncoming(userId, replyToken, lat, lng) {
         : '';
     replyText(
       replyToken,
-      '📍位置を受け取りました。\n【順番】①短文テキスト（50字まで）→②📸写真または🎬動画（3秒以内） →③カテゴリ（あとでボタン）\n写真・動画だけ先に送ると正しく処理できません。' +
+      '📍位置を受け取りました。\n【順番】①短文テキスト（50字まで）→②📸写真または🎬動画 →③カテゴリ（あとでボタン）\n写真・動画だけ先に送ると正しく処理できません。\n※動画はマップで先頭3秒だけ再生されます。' +
         tail
     );
   } catch (err) {
@@ -875,13 +851,12 @@ function handleStoreContentText(userId, replyToken, user, text) {
 
   // 画像／動画が先に届いていた場合はテキストを合わせてカテゴリへ即進む
   const pendingImg = loadPending(userId);
-  if (pendingImg && (pendingImg.imageUrl || pendingImg.videoUrl)) {
+  if (pendingImg && pendingImg.imageUrl) {
     deletePending(userId);
     const prev = getSession(userId).payload || {};
     setSession(userId, STEP_AWAITING_CATEGORY, {
       text: truncated,
-      imageUrl: pendingImg.imageUrl || '',
-      videoUrl: pendingImg.videoUrl || '',
+      imageUrl: pendingImg.imageUrl,
       lat: prev.lat != null ? prev.lat : null,
       lng: prev.lng != null ? prev.lng : null,
       spotId: prev.spotId || '',
@@ -894,11 +869,11 @@ function handleStoreContentText(userId, replyToken, user, text) {
   // テキストを pending に保存して画像／動画を待つ
   savePending(userId, user.fixedStoreId || '', truncated);
   replyText(replyToken,
-    `📝 受け付けました「${truncated}」\n【順番: テキスト→写真または動画（3秒以内）】続けて📸写真または🎬動画を送ってください（${PENDING_EXPIRE_MS / 60000}分以内）\n不要ならそのまま待つとカテゴリ選択に進みます。`
+    `📝 受け付けました「${truncated}」\n【順番: テキスト→写真または動画】続けて📸写真または🎬動画を送ってください（${PENDING_EXPIRE_MS / 60000}分以内）\n不要ならそのまま待つとカテゴリ選択に進みます。\n※動画はマップで先頭3秒だけ再生されます。`
   );
 }
 
-function mergeImageWithPendingThenAskCategory(userId, replyToken, user, imageUrl, videoUrl) {
+function mergeImageWithPendingThenAskCategory(userId, replyToken, user, imageUrl) {
   const pending = loadPendingWithGrace(userId); // 期限切れでも猶予内なら取得
   const text = pending ? String(pending.message || '') : '';
 
@@ -906,27 +881,26 @@ function mergeImageWithPendingThenAskCategory(userId, replyToken, user, imageUrl
   setSession(userId, STEP_AWAITING_CATEGORY, {
     text,
     imageUrl: imageUrl || '',
-    videoUrl: videoUrl || '',
     lat: prev.lat != null ? prev.lat : null,
     lng: prev.lng != null ? prev.lng : null,
     spotId: prev.spotId || '',
     spotName: prev.spotName || ''
   });
   replyWithCategoryQuickReply(replyToken,
-    (text || imageUrl || videoUrl ? '内容を確認しました。' : '') + 'カテゴリを選んでください👇');
+    (text || imageUrl ? '内容を確認しました。' : '') + 'カテゴリを選んでください👇');
 }
 
-function mergeImageWithPendingThenAskSpot(userId, replyToken, user, imageUrl, videoUrl) {
+function mergeImageWithPendingThenAskSpot(userId, replyToken, user, imageUrl) {
   const pending = loadPendingWithGrace(userId); // 期限切れでも猶予内なら取得
   const text = pending ? String(pending.message || '')  : '';
 
-  if (!text && !imageUrl && !videoUrl) {
+  if (!text && !imageUrl) {
     replyText(replyToken, 'テキストか画像・動画を送ってください。');
     return;
   }
 
   setSession(userId, STEP_AWAITING_SPOT, {
-    text, imageUrl: imageUrl || '', videoUrl: videoUrl || '', lat: null, lng: null, spotId: '', spotName: ''
+    text, imageUrl: imageUrl || '', lat: null, lng: null, spotId: '', spotName: ''
   });
   replyText(replyToken, buildSpotListMessage());
 }
@@ -944,7 +918,7 @@ function handleOperatorContentText(userId, replyToken, user, text) {
   const truncated = text.substring(0, MAX_MESSAGE_LENGTH);
   savePending(userId, '_op_', truncated);
   replyText(replyToken,
-    `📝 受け付けました「${truncated}」\n【推奨の順: テキスト→写真または動画（3秒以内）】続けて📸写真または🎬動画（${PENDING_EXPIRE_MS / 60000}分以内）\nメディアのみでも進められます。`);
+    `📝 受け付けました「${truncated}」\n【推奨の順: テキスト→写真または動画】続けて📸写真または🎬動画（${PENDING_EXPIRE_MS / 60000}分以内）\nメディアのみでも進められます。`);
 }
 
 // ==================================================================
@@ -957,7 +931,7 @@ function handleContributorContentText(userId, replyToken, user, text) {
     replyText(
       replyToken,
       '協力者の投稿は📍位置が先です。\n' +
-        '【順番】📍位置情報 → 短文テキスト → 📸写真または🎬動画（3秒以内） → カテゴリ\n' +
+        '【順番】📍位置情報 → 短文テキスト → 📸写真または🎬動画 → カテゴリ\n' +
         '「📍位置を受け取りました」のあとは、まず短文、そのあと写真または動画を送ってください。\n' +
         '※位置と同時・直後のテキストは届かないことがあります。返信のあとに送ってください。'
     );
@@ -971,27 +945,25 @@ function handleContributorContentText(userId, replyToken, user, text) {
   if (!truncated) {
     replyText(
       replyToken,
-      '位置情報付きの投稿は【順番: 短文テキスト→📸写真または🎬動画（3秒以内）】です。\n先に内容のある短文（1文字以上）を送ってから、写真または動画を送ってください。'
+      '位置情報付きの投稿は【順番: 短文テキスト→📸写真または🎬動画】です。\n先に内容のある短文（1文字以上）を送ってから、写真または動画を送ってください。'
     );
     return;
   }
   savePending(userId, '_liv_', truncated);
   replyText(replyToken,
-    `📝 受け付けました「${truncated}」\n【順番: テキスト→写真または動画（3秒以内）】続けて📸写真または🎬動画を送ってください（${PENDING_EXPIRE_MS / 60000}分以内）`);
+    `📝 受け付けました「${truncated}」\n【順番: テキスト→写真または動画】続けて📸写真または🎬動画を送ってください（${PENDING_EXPIRE_MS / 60000}分以内）`);
 }
 
-function handleContributorMedia(userId, replyToken, user, media) {
+function handleContributorMedia(userId, replyToken, user, imageUrl) {
   const pendingTxt = loadPending(userId);
   if (!pendingTxt || !String(pendingTxt.message || '').trim()) {
     replyText(
       replyToken,
-      '位置情報付きの投稿は【順番: 短文テキスト→📸写真または🎬動画（3秒以内）】です。\n短文を先に送ってから写真または動画を送ってください。（メディアだけ先に送ると正しく処理できません）'
+      '位置情報付きの投稿は【順番: 短文テキスト→📸写真または🎬動画】です。\n短文を先に送ってから写真または動画を送ってください。（メディアだけ先に送ると正しく処理できません）'
     );
     return;
   }
-  const imageUrl = (media && media.imageUrl) ? String(media.imageUrl) : '';
-  const videoUrl = (media && media.videoUrl) ? String(media.videoUrl) : '';
-  mergeImageWithPendingThenAskCategory(userId, replyToken, user, imageUrl, videoUrl);
+  mergeImageWithPendingThenAskCategory(userId, replyToken, user, imageUrl || '');
 }
 
 function handleOperatorSpotNumber(userId, replyToken, n) {
@@ -1025,8 +997,8 @@ function finalizePostWithCategory(userId, replyToken, user, category) {
     replyText(replyToken, 'カテゴリ選択のタイミングではありません。投稿を送り直してください。');
     return;
   }
-  const { text, imageUrl, videoUrl, lat, lng, spotId, spotName } = sess.payload;
-  if (!text && !imageUrl && !videoUrl) {
+  const { text, imageUrl, lat, lng, spotId, spotName } = sess.payload;
+  if (!text && !imageUrl) {
     replyText(replyToken, 'テキストか画像・動画がありません。最初から送り直してください。');
     deleteSession(userId);
     return;
@@ -1081,7 +1053,7 @@ function finalizePostWithCategory(userId, replyToken, user, category) {
 
   appendPostRow({
     postId, userId, role: user.role, sourceType, category,
-    text: text || '', imageUrl: imageUrl || '', videoUrl: videoUrl || '',
+    text: text || '', imageUrl: imageUrl || '',
     lat: finalLat, lng: finalLng, storeId, spotId: spotIdOut,
     createdAt, expiresAt, isVisible: true
   });
@@ -1091,8 +1063,11 @@ function finalizePostWithCategory(userId, replyToken, user, category) {
 
   let locHint = '';
   if (spotName) locHint = `\n場所:${spotName}`;
+  const videoHint = isLiveVideoImageUrl_(imageUrl)
+    ? '\n※動画はマップで先頭3秒だけ再生されます'
+    : '';
   replyText(replyToken,
-    `✅ マップに反映しました！\nカテゴリ:${category}${locHint}\n（${formatPostTtlHint_(TTL_MS[user.role])}で自動的に終了します）`);
+    `✅ マップに反映しました！\nカテゴリ:${category}${locHint}${videoHint}\n（${formatPostTtlHint_(TTL_MS[user.role])}で自動的に終了します）`);
 }
 
 // ==================================================================
@@ -1121,8 +1096,7 @@ function appendPostRow(row) {
     row.spotId,
     row.createdAt,
     row.expiresAt,
-    row.isVisible === false ? false : true,
-    row.videoUrl || ''
+    row.isVisible === false ? false : true
   ]);
 }
 
@@ -1131,22 +1105,10 @@ function ensurePostsSheet(ss) {
   s.appendRow([
     'postId', 'userId', 'role', 'sourceType', 'category',
     'text', 'imageUrl', 'lat', 'lng', 'storeId', 'spotId',
-    'createdAt', 'expiresAt', 'isVisible', 'videoUrl'
+    'createdAt', 'expiresAt', 'isVisible'
   ]);
   s.setFrozenRows(1);
-  s.getRange('A1:O1').setBackground('#2E7D32').setFontColor('#FFFFFF').setFontWeight('bold');
-}
-
-/** 既存 posts シートに videoUrl 列（O）が無ければ追加する */
-function ensurePostsVideoUrlColumn_(ss) {
-  const sheet = ss.getSheetByName(POSTS_SHEET_NAME);
-  if (!sheet) return;
-  const lastCol = sheet.getLastColumn();
-  const headers = sheet.getRange(1, 1, 1, Math.max(lastCol, 15)).getValues()[0];
-  const oHeader = headers[14] != null ? String(headers[14]).trim() : '';
-  if (oHeader) return;
-  sheet.getRange(1, 15).setValue('videoUrl');
-  sheet.getRange('A1:O1').setBackground('#2E7D32').setFontColor('#FFFFFF').setFontWeight('bold');
+  s.getRange('A1:N1').setBackground('#2E7D32').setFontColor('#FFFFFF').setFontWeight('bold');
 }
 
 // ==================================================================
@@ -1442,13 +1404,12 @@ function saveStoreCoordsToMaster(storeId, lat, lng) {
 // ==================================================================
 
 /**
- * pending_posts に保存。imageUrl / videoUrl を省略すると既存行の該当列は維持する。
+ * pending_posts に保存。imageUrl を省略すると既存行の image_url は維持する。
  * message を省略（''）すると既存行の message は維持する（空文字は上書き）。
  */
-function savePending(userId, storeKey, message, imageUrl, videoUrl) {
+function savePending(userId, storeKey, message, imageUrl) {
   const uid = normalizeWebhookUserIdForSheet_(userId);
   const sheet = getPendingSheet(true);
-  ensurePendingVideoUrlColumn_(sheet);
   const data = sheet.getDataRange().getValues();
   const now = new Date();
   for (let i = 1; i < data.length; i++) {
@@ -1457,20 +1418,12 @@ function savePending(userId, storeKey, message, imageUrl, videoUrl) {
       if (message !== undefined && message !== null) sheet.getRange(i + 1, 3).setValue(message);
       sheet.getRange(i + 1, 4).setValue(now);
       if (imageUrl !== undefined && imageUrl !== null) sheet.getRange(i + 1, 5).setValue(imageUrl);
-      if (videoUrl !== undefined && videoUrl !== null) sheet.getRange(i + 1, 6).setValue(videoUrl);
       invalidatePendingRowsCache_();
       return;
     }
   }
-  sheet.appendRow([uid, storeKey, message || '', now, imageUrl || '', videoUrl || '']);
+  sheet.appendRow([uid, storeKey, message || '', now, imageUrl || '']);
   invalidatePendingRowsCache_();
-}
-
-function pendingMediaFromRow_(row) {
-  return {
-    imageUrl: row[4] ? String(row[4]) : '',
-    videoUrl: row[5] ? String(row[5]) : ''
-  };
 }
 
 function loadPending(userId) {
@@ -1485,8 +1438,7 @@ function loadPending(userId) {
       // 期限切れでも行は残す（flushExpiredPending が別途消す）
       return null;
     }
-    const media = pendingMediaFromRow_(data[i]);
-    return { storeId: data[i][1], message: data[i][2], imageUrl: media.imageUrl, videoUrl: media.videoUrl };
+    return { storeId: data[i][1], message: data[i][2], imageUrl: data[i][4] ? String(data[i][4]) : '' };
   }
   return null;
 }
@@ -1508,12 +1460,10 @@ function loadPendingWithGrace(userId) {
     const savedAt = data[i][3] ? new Date(data[i][3]).getTime() : 0;
     const age = now - savedAt;
     if (age > PENDING_LOAD_GRACE_MS) return null;
-    const media = pendingMediaFromRow_(data[i]);
     const result = {
       storeId: data[i][1],
       message: data[i][2],
-      imageUrl: media.imageUrl,
-      videoUrl: media.videoUrl
+      imageUrl: data[i][4] ? String(data[i][4]) : ''
     };
     sheet.deleteRow(i + 1);
     invalidatePendingRowsCache_();
@@ -1556,21 +1506,19 @@ function flushExpiredPending(excludeUserId) {
     // 画像受信など、呼び出し元が自分自身の pending を後で使う場合はスキップ
     if (excludeUserId && sheetRowUserIdMatches_(userId, excludeUserId)) continue;
     const message  = data[i][2] ? String(data[i][2]) : '';
-    const media = pendingMediaFromRow_(data[i]);
-    const imageUrl = media.imageUrl;
-    const videoUrl = media.videoUrl;
+    const imageUrl = data[i][4] ? String(data[i][4]) : '';
 
     sheet.deleteRow(i + 1);
 
     // テキストもメディアも空なら何もしない
-    if (!message.trim() && !imageUrl && !videoUrl) continue;
+    if (!message.trim() && !imageUrl) continue;
 
     const user = getUserRecord(userId);
     if (!user || user.isActive === false) continue;
 
-    const promptMsg = (imageUrl || videoUrl) && !message.trim()
-      ? (videoUrl ? '動画を確定しました。カテゴリを選んでください👇' : '写真を確定しました。カテゴリを選んでください👇')
-      : message.trim() && !imageUrl && !videoUrl
+    const promptMsg = imageUrl && !message.trim()
+      ? (isLiveVideoImageUrl_(imageUrl) ? '動画を確定しました。カテゴリを選んでください👇' : '写真を確定しました。カテゴリを選んでください👇')
+      : message.trim() && !imageUrl
         ? 'テキストを確定しました。カテゴリを選んでください👇'
         : 'カテゴリを選んでください👇';
 
@@ -1578,20 +1526,20 @@ function flushExpiredPending(excludeUserId) {
       const sess = getSession(userId);
       if (sess.payload.lat != null && sess.payload.lng != null) {
         // GPS 付き店舗投稿もテキスト→メディアの順。メディアのみの期限切れはカテゴリへ進めない
-        if (!message.trim() && (imageUrl || videoUrl)) continue;
+        if (!message.trim() && imageUrl) continue;
         setSession(userId, STEP_AWAITING_CATEGORY, Object.assign({}, sess.payload, {
-          text: message, imageUrl, videoUrl
+          text: message, imageUrl
         }));
       } else {
         setSession(userId, STEP_AWAITING_CATEGORY, {
-          text: message, imageUrl, videoUrl, lat: null, lng: null, spotId: '', spotName: '',
+          text: message, imageUrl, lat: null, lng: null, spotId: '', spotName: '',
           storeId: user.fixedStoreId || ''
         });
       }
       replyWithCategoryQuickReplyPush(userId, promptMsg);
     } else if (ROLE_OPERATOR_ENABLED && user.role === ROLE_OPERATOR) {
       setSession(userId, STEP_AWAITING_SPOT, {
-        text: message, imageUrl, videoUrl, lat: null, lng: null, spotId: '', spotName: ''
+        text: message, imageUrl, lat: null, lng: null, spotId: '', spotName: ''
       });
       const spotListMsg = buildSpotListMessage();
       pushText(userId,
@@ -1602,9 +1550,9 @@ function flushExpiredPending(excludeUserId) {
     } else if (user.role === ROLE_CONTRIBUTOR) {
       const sess = getSession(userId);
       if (sess.payload.lat == null || sess.payload.lng == null) continue;
-      if (!message.trim() && (imageUrl || videoUrl)) continue;
+      if (!message.trim() && imageUrl) continue;
       setSession(userId, STEP_AWAITING_CATEGORY, Object.assign({}, sess.payload, {
-        text: message, imageUrl, videoUrl
+        text: message, imageUrl
       }));
       replyWithCategoryQuickReplyPush(userId, promptMsg);
     }
@@ -1616,25 +1564,11 @@ function getPendingSheet(createIfMissing) {
   let sheet = ss.getSheetByName(PENDING_SHEET_NAME);
   if (!sheet && createIfMissing) {
     sheet = insertSheetAtEnd_(ss, PENDING_SHEET_NAME);
-    sheet.appendRow(['userId', 'store_id', 'message', 'saved_at', 'image_url', 'video_url']);
+    sheet.appendRow(['userId', 'store_id', 'message', 'saved_at', 'image_url']);
     sheet.setFrozenRows(1);
-    sheet.getRange('A1:F1').setBackground('#FFA000').setFontColor('#FFFFFF').setFontWeight('bold');
+    sheet.getRange('A1:E1').setBackground('#FFA000').setFontColor('#FFFFFF').setFontWeight('bold');
   }
-  if (sheet) ensurePendingVideoUrlColumn_(sheet);
   return sheet;
-}
-
-function ensurePendingVideoUrlColumn_(sheet) {
-  if (!sheet) return;
-  const lastCol = Math.max(sheet.getLastColumn(), 1);
-  const headers = sheet.getRange(1, 1, 1, Math.max(lastCol, 6)).getValues()[0];
-  if (!headers[4] || String(headers[4]).trim() === '') {
-    sheet.getRange(1, 5).setValue('image_url');
-  }
-  if (!headers[5] || String(headers[5]).trim() === '') {
-    sheet.getRange(1, 6).setValue('video_url');
-    sheet.getRange('A1:F1').setBackground('#FFA000').setFontColor('#FFFFFF').setFontWeight('bold');
-  }
 }
 
 // ==================================================================
@@ -1786,7 +1720,7 @@ function handleRegisterCommand(userId, replyToken, text) {
   if (sub === '協力' || sub === '協力者' || sub === 'contributor') {
     if (canRegisterSpecialRoles(userId, specialPw)) {
       saveUserRecord(userId, ROLE_CONTRIBUTOR, '');
-      setSession(userId, STEP_IDLE, { text: '', imageUrl: '', videoUrl: '', lat: null, lng: null, spotId: '', spotName: '' });
+      setSession(userId, STEP_IDLE, { text: '', imageUrl: '', lat: null, lng: null, spotId: '', spotName: '' });
       replyText(replyToken, MSG_LINE_REGISTERED_CONTRIBUTOR_OK_);
       return;
     }
@@ -1857,7 +1791,7 @@ function handleRegistrationPasswordReply(userId, replyToken, passwordText) {
   }
   if (kind === 'contributor') {
     saveUserRecord(userId, ROLE_CONTRIBUTOR, '');
-    setSession(userId, STEP_IDLE, { text: '', imageUrl: '', videoUrl: '', lat: null, lng: null, spotId: '', spotName: '' });
+    setSession(userId, STEP_IDLE, { text: '', imageUrl: '', lat: null, lng: null, spotId: '', spotName: '' });
     replyText(replyToken, MSG_LINE_REGISTERED_CONTRIBUTOR_OK_);
     return;
   }
@@ -1896,7 +1830,7 @@ function handleCheckCommand(userId, replyToken) {
     detail = ROLE_OPERATOR_ENABLED
       ? '運営（スポット選択）'
       : '運営（現在停止中・登録解除して協力または店舗へ）';
-  } else detail = '協力者（📍位置→短文テキスト→📸写真または🎬動画3秒以内→カテゴリ）';
+  } else detail = '協力者（📍位置→短文テキスト→📸写真または🎬動画→カテゴリ）';
 
   replyText(replyToken,
     `📋 登録状況\nロール:${u.role}\n${detail}\n有効:${u.isActive !== false}`);
@@ -1959,7 +1893,6 @@ function handleAdminTestPost(replyToken, adminUserId) {
     category: 'お知らせ',
     text: '🧪 テスト投稿',
     imageUrl: '',
-    videoUrl: '',
     lat: c.lat,
     lng: c.lng,
     storeId: u.fixedStoreId,
@@ -2001,15 +1934,15 @@ function buildHelpMessage(userId) {
       'マップモデレーション: posts の isVisible を編集できます。';
   } else if (u.role === ROLE_STORE) {
     flow =
-      '📝 店舗投稿の順番: 短文テキスト→📸写真または🎬動画（3秒以内）→カテゴリ（ボタン）\n座標はスプレッドシート側のお店情報を使用します。\n' +
-      '📍移動中の投稿の順番: 📍位置情報→短文テキスト→📸写真または🎬動画（3秒以内）→カテゴリ（現在地がマップに出ます）';
+      '📝 店舗投稿の順番: 短文テキスト→📸写真または🎬動画→カテゴリ（ボタン）\n座標はスプレッドシート側のお店情報を使用します。\n動画はマップで先頭3秒だけ再生されます。\n' +
+      '📍移動中の投稿の順番: 📍位置情報→短文テキスト→📸写真または🎬動画→カテゴリ（現在地がマップに出ます）';
   } else if (u.role === ROLE_OPERATOR) {
     flow = ROLE_OPERATOR_ENABLED
-      ? '📝 運営投稿の順番: 短文テキストまたは📸写真／🎬動画（3秒以内）→番号でスポット→カテゴリ\n⚠️ venue_spots にスポットを登録しておいてください'
+      ? '📝 運営投稿の順番: 短文テキストまたは📸写真／🎬動画→番号でスポット→カテゴリ\n⚠️ venue_spots にスポットを登録しておいてください'
       : MSG_LINE_OPERATOR_ROLE_SUSPENDED_;
   } else {
     flow =
-      '📝 協力者投稿の順番: 📍位置情報→短文テキスト→📸写真または🎬動画（3秒以内）→カテゴリ（テキストを先に、続けてメディア）';
+      '📝 協力者投稿の順番: 📍位置情報→短文テキスト→📸写真または🎬動画→カテゴリ（テキストを先に、続けてメディア）\n※動画はマップで先頭3秒だけ再生されます';
   }
   return head + flow + `\n\n文字数:${MAX_MESSAGE_LENGTH}文字まで`;
 }
@@ -2036,7 +1969,8 @@ function fetchLineImageToDrive(messageId) {
 
 /**
  * LINE 動画本体とプレビュー画像を Drive へ保存する。
- * 戻り値: { imageUrl: マップ用サムネ, videoUrl: 再生用 Drive URL }
+ * posts 列は増やさず、サムネ URL のフラグメント #livevideo=動画FILE_ID で識別する。
+ * 戻り値: { imageUrl: マップ用サムネ（フラグメント付き） }
  */
 function fetchLineVideoToDrive(messageId) {
   const token = getWebhookLineToken_();
@@ -2074,8 +2008,7 @@ function fetchLineVideoToDrive(messageId) {
     }
   }
   return {
-    imageUrl: drivePublicThumbUrl_(thumbId),
-    videoUrl: drivePublicVideoUrl_(videoFile.getId())
+    imageUrl: annotateLiveVideoImageUrl_(drivePublicThumbUrl_(thumbId), videoFile.getId())
   };
 }
 
@@ -2083,8 +2016,19 @@ function drivePublicThumbUrl_(fileId) {
   return `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`;
 }
 
-function drivePublicVideoUrl_(fileId) {
-  return `https://drive.google.com/file/d/${fileId}/view`;
+/** 既存 imageUrl 列だけで動画と写真を区別する。フラグメントは <img> リクエストに乗らない */
+function annotateLiveVideoImageUrl_(thumbUrl, videoFileId) {
+  const base = String(thumbUrl || '').split('#')[0];
+  // フラグメントは <img> に乗らない。gviz が hash を落とす場合に備え file/d URL も同じセルに併記する（列は増やさない）。
+  return base + '#' + LIVE_VIDEO_URL_HASH + '=' + videoFileId
+    + ' https://drive.google.com/file/d/' + videoFileId + '/view';
+}
+
+function isLiveVideoImageUrl_(url) {
+  const s = String(url || '');
+  const i = s.indexOf('#');
+  if (i < 0) return false;
+  return s.slice(i + 1).indexOf(LIVE_VIDEO_URL_HASH) === 0;
 }
 
 function getOrCreateFolder(folderName) {
@@ -2156,8 +2100,6 @@ function setupSheets() {
   if (!ss.getSheetByName(POSTS_SHEET_NAME)) {
     ensurePostsSheet(ss);
     console.log('✅ posts');
-  } else {
-    ensurePostsVideoUrlColumn_(ss);
   }
   if (!ss.getSheetByName(VENUE_SPOTS_SHEET_NAME)) {
     const s = insertSheetAtEnd_(ss, VENUE_SPOTS_SHEET_NAME);
@@ -2267,7 +2209,6 @@ function testAppend() {
     category: 'お知らせ',
     text: 'テスト',
     imageUrl: '',
-    videoUrl: '',
     lat: 34.675,
     lng: 138.943,
     storeId: 'test',
