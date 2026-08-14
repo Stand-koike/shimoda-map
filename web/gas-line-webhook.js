@@ -543,29 +543,43 @@ function serveDriveVideoForMap_(fileId) {
   }
   try {
     var file = DriveApp.getFileById(id);
-    if (!isDriveFileInWebhookMediaFolder_(file)) {
+    if (!isDriveFileAllowedForMapVideo_(file)) {
       return ContentService.createTextOutput('forbidden').setMimeType(ContentService.MimeType.TEXT);
     }
     var blob = file.getBlob();
     var mime = blob.getContentType() || 'video/mp4';
-    if (mime.indexOf('video/') !== 0 && mime.indexOf('application/') !== 0) {
+    if (mime.indexOf('video/') !== 0 && mime.indexOf('application/') !== 0 && mime.indexOf('octet') < 0) {
       mime = 'video/mp4';
     }
     return ContentService.createBlobOutput(blob).setMimeType(mime);
   } catch (err) {
-    webhookExecErr_('[serveDriveVideoForMap_] ' + String(err && err.message ? err.message : err));
-    return ContentService.createTextOutput('error').setMimeType(ContentService.MimeType.TEXT);
+    var msg = String(err && err.message ? err.message : err);
+    webhookExecErr_('[serveDriveVideoForMap_] ' + msg);
+    if (/Authorization|permission|access|denied|Required/i.test(msg)) {
+      return ContentService.createTextOutput(
+        'error: Webアプリのデプロイを「実行ユーザー: 自分」にしてください（匿名アクセスで Drive が開けません）'
+      ).setMimeType(ContentService.MimeType.TEXT);
+    }
+    return ContentService.createTextOutput('error: ' + msg).setMimeType(ContentService.MimeType.TEXT);
   }
 }
 
-function isDriveFileInWebhookMediaFolder_(file) {
-  var folder = getOrCreateFolder(DRIVE_FOLDER_NAME);
-  var targetId = folder.getId();
-  var parents = file.getParents();
-  while (parents.hasNext()) {
-    if (parents.next().getId() === targetId) return true;
+/** LINE_MAP_IMAGES 配下、またはリンク共有済みの Drive 動画のみ配信 */
+function isDriveFileAllowedForMapVideo_(file) {
+  try {
+    var folder = getOrCreateFolder(DRIVE_FOLDER_NAME);
+    var targetId = folder.getId();
+    var parents = file.getParents();
+    while (parents.hasNext()) {
+      if (parents.next().getId() === targetId) return true;
+    }
+  } catch (e) { /* ignore */ }
+  try {
+    var access = file.getSharingAccess();
+    return access === DriveApp.Access.ANYONE_WITH_LINK || access === DriveApp.Access.ANYONE;
+  } catch (e2) {
+    return false;
   }
-  return false;
 }
 
 /** ウェブアプリ URL + ?action=video&id=… （ScriptApp.getService または LIVE_VIDEO_PROXY_BASE） */
@@ -2092,9 +2106,30 @@ function isLiveVideoImageUrl_(url) {
 }
 
 function getOrCreateFolder(folderName) {
-  const folders = DriveApp.getFoldersByName(folderName);
-  if (folders.hasNext()) return folders.next();
-  return DriveApp.createFolder(folderName);
+  var props = PropertiesService.getScriptProperties();
+  var storedKey = 'DRIVE_FOLDER_ID_' + String(folderName || '').replace(/\W+/g, '_');
+  var storedId = props.getProperty(storedKey);
+  if (storedId) {
+    try {
+      return DriveApp.getFolderById(storedId);
+    } catch (e) { /* 削除済み等 */ }
+  }
+  var folders = DriveApp.getFoldersByName(folderName);
+  if (folders.hasNext()) {
+    var existing = folders.next();
+    props.setProperty(storedKey, existing.getId());
+    return existing;
+  }
+  var created = DriveApp.createFolder(folderName);
+  props.setProperty(storedKey, created.getId());
+  return created;
+}
+
+/** エディタから実行: 動画 FILE_ID を渡して配信テスト（Web アプリは「実行ユーザー: 自分」必須） */
+function testServeDriveVideoForMap() {
+  var id = '1op6F0cIelMjojMbp20zs9Rcn0vUXUcpj';
+  var out = serveDriveVideoForMap_(id);
+  webhookExecLog_('[testServeDriveVideoForMap] mime=' + out.getMimeType());
 }
 
 // ==================================================================
