@@ -1740,6 +1740,29 @@ function extractDriveFileId_(raw) {
 
 const LIVE_VIDEO_PLAY_SECONDS = 3;
 
+function isLiveVideoDemoRequested_() {
+    try {
+        const q = new URLSearchParams(location.search);
+        return q.get('liveVideoDemo') === '1' || q.get('demo') === 'livevideo';
+    } catch (_) {
+        return false;
+    }
+}
+
+function isPlaceholderSheetId_(id) {
+    const s = String(id == null ? '' : id).trim();
+    return !s || s === 'YOUR_GOOGLE_SHEET_ID' || /^YOUR_/i.test(s);
+}
+
+function isPlaceholderMapboxToken_(token) {
+    const s = String(token == null ? '' : token).trim();
+    return !s || s === 'pk.YOUR_MAPBOX_TOKEN' || /^pk\.YOUR_/i.test(s);
+}
+
+function shouldSkipSheetFetch_() {
+    return isLiveVideoDemoRequested_() || isPlaceholderSheetId_(CONFIG.SHEET_ID);
+}
+
 /**
  * posts.imageUrl からサムネと動画を取り出す。
  * 動画は列を増やさず、#livevideo=FILE_ID または隣の file/d URL で識別する。
@@ -1954,6 +1977,12 @@ const DataModule = {
     },
 
     _doFetch() {
+        if (shouldSkipSheetFetch_()) {
+            clearTimeout(this._fetchTimeout);
+            if (!Array.isArray(State.allSpots)) State.allSpots = [];
+            App._onDataReady();
+            return;
+        }
         const cbName = '_gvizCb';
         const oldScript = document.getElementById('gviz-script');
         if (oldScript) oldScript.remove();
@@ -2268,8 +2297,7 @@ const PostsModule = {
 
     /** ?liveVideoDemo=1 でマップ中央に動画ピンを出す（GAS / シート不要） */
     _injectLiveVideoDemo() {
-        const q = new URLSearchParams(location.search);
-        if (q.get('liveVideoDemo') !== '1' && q.get('demo') !== 'livevideo') return;
+        if (!isLiveVideoDemoRequested_()) return;
 
         const center = (CONFIG.MAP_IMAGE && CONFIG.MAP_IMAGE.center) || [138.9479213, 34.6745551];
         const demo = {
@@ -2717,7 +2745,7 @@ const MapModule = {
                 console.error('[MapModule] レイヤー初期化エラー:', e);
             }
             DataModule.fetch();
-            DataModule.startPolling();
+            if (!shouldSkipSheetFetch_()) DataModule.startPolling();
             this._startGPS();
 
             Promise.resolve(this._addIllustrationMap())
@@ -2735,12 +2763,13 @@ const MapModule = {
             if (!this._loaded) onMapReady();
         });
 
+        const mapWaitMs = isPlaceholderMapboxToken_(CONFIG.MAPBOX_TOKEN) ? 400 : 8000;
         setTimeout(() => {
             if (!this._loaded) {
                 console.warn('[MapModule] load タイムアウト — 強制的にデータ取得を開始');
                 onMapReady();
             }
-        }, 8000);
+        }, mapWaitMs);
 
         this._map.on('click', () => {
             UIModule.closePanelOverlay();
@@ -4058,10 +4087,12 @@ const App = {
         if (!this._postsInitialized) {
             this._postsInitialized = true;
             PostsModule._injectLiveVideoDemo();
-            PostsModule.fetch();
-            PostsModule.startPolling();
-            EventScheduleModule.fetch();
-            EventScheduleModule.startPolling();
+            if (!shouldSkipSheetFetch_()) {
+                PostsModule.fetch();
+                PostsModule.startPolling();
+                EventScheduleModule.fetch();
+                EventScheduleModule.startPolling();
+            }
             EventScheduleModule.startTick();
         }
 
