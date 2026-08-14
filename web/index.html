@@ -1942,6 +1942,12 @@ function parseLiveMediaFromRaw(raw) {
 }
 
 /** GAS ウェブアプリから JSONP で先頭クリップを取る */
+function isChromeDesktopLiveVideo_() {
+    const ua = navigator.userAgent || '';
+    if (/Mobile|Android|iPhone|iPad|iPod|CriOS|FxiOS/i.test(ua)) return false;
+    return /Chrome\//.test(ua);
+}
+
 function buildLiveVideoClipJsonpUrl_(fileId, callbackName) {
     const id = String(fileId || '').trim();
     if (!id) return '';
@@ -1952,8 +1958,10 @@ function buildLiveVideoClipJsonpUrl_(fileId, callbackName) {
     if (!base) return '';
     base = base.replace(/\/$/, '');
     const join = base.indexOf('?') >= 0 ? '&' : '?';
-    return base + join + 'action=clip&id=' + encodeURIComponent(id) +
+    let url = base + join + 'action=clip&id=' + encodeURIComponent(id) +
         '&callback=' + encodeURIComponent(callbackName);
+    if (isChromeDesktopLiveVideo_()) url += '&full=1';
+    return url;
 }
 
 function buildLiveVideoProxyUrl_(fileId) {
@@ -1979,16 +1987,8 @@ function liveVideoB64ToBlobUrl_(b64) {
     return URL.createObjectURL(new Blob([arr], { type: 'video/mp4' }));
 }
 
-function fetchLiveVideoClipBlobUrl_(fileId) {
-    const id = String(fileId || '').trim();
-    if (!id) return Promise.reject(new Error('no file id'));
-    const cached = liveVideoClipCache_.get(id);
-    if (cached) {
-        if (cached.blobUrl) return Promise.resolve(cached.blobUrl);
-        return cached.promise;
-    }
-    const entry = { blobUrl: '', promise: null };
-    entry.promise = new Promise((resolve, reject) => {
+function fetchLiveVideoClipViaJsonp_(id) {
+    return new Promise((resolve, reject) => {
         const cb = '__liveVideoClipCb' + String(++liveVideoJsonpSeq_);
         const url = buildLiveVideoClipJsonpUrl_(id, cb);
         if (!url) {
@@ -2003,13 +2003,8 @@ function fetchLiveVideoClipBlobUrl_(fileId) {
             clearTimeout(timeout);
             try { delete window[cb]; } catch (_) { /* ignore */ }
             if (script.parentNode) script.parentNode.removeChild(script);
-            if (err) {
-                liveVideoClipCache_.delete(id);
-                reject(err);
-            } else {
-                entry.blobUrl = blobUrl;
-                resolve(blobUrl);
-            }
+            if (err) reject(err);
+            else resolve(blobUrl);
         };
         const timeout = setTimeout(() => done(new Error('timeout')), 25000);
         window[cb] = (payload) => {
@@ -2027,6 +2022,44 @@ function fetchLiveVideoClipBlobUrl_(fileId) {
         script.src = url;
         script.onerror = () => done(new Error('jsonp load failed'));
         document.head.appendChild(script);
+    });
+}
+
+function fetchLiveVideoClipViaCors_(id) {
+    const url = buildLiveVideoClipJsonpUrl_(id, 'liveVideoClipCb');
+    if (!url) return Promise.reject(new Error('no proxy'));
+    return fetch(url, { mode: 'cors', credentials: 'omit' }).then((resp) => {
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        return resp.text();
+    }).then((text) => {
+        const m = String(text || '').match(/^[A-Za-z_$][\w$]*\(([\s\S]*)\)\s*;?\s*$/);
+        if (!m) throw new Error('clip parse');
+        const payload = JSON.parse(m[1]);
+        if (!payload || !payload.ok || !payload.b64) {
+            throw new Error((payload && payload.error) || 'clip failed');
+        }
+        return liveVideoB64ToBlobUrl_(payload.b64);
+    });
+}
+
+function fetchLiveVideoClipBlobUrl_(fileId) {
+    const id = String(fileId || '').trim();
+    if (!id) return Promise.reject(new Error('no file id'));
+    const cached = liveVideoClipCache_.get(id);
+    if (cached) {
+        if (cached.blobUrl) return Promise.resolve(cached.blobUrl);
+        return cached.promise;
+    }
+    const entry = { blobUrl: '', promise: null };
+    const request = isChromeDesktopLiveVideo_()
+        ? fetchLiveVideoClipViaCors_(id).catch(() => fetchLiveVideoClipViaJsonp_(id))
+        : fetchLiveVideoClipViaJsonp_(id);
+    entry.promise = request.then((blobUrl) => {
+        entry.blobUrl = blobUrl;
+        return blobUrl;
+    }).catch((err) => {
+        liveVideoClipCache_.delete(id);
+        throw err;
     });
     liveVideoClipCache_.set(id, entry);
     return entry.promise;
@@ -2182,6 +2215,8 @@ function mountAndPlayLiveVideoClip_(frame, blobUrl) {
     video.className = 'live-clip-video live-drive-video';
     video.playsInline = true;
     video.muted = true;
+    video.defaultMuted = true;
+    video.volume = 0;
     video.setAttribute('playsinline', '');
     video.setAttribute('webkit-playsinline', '');
     video.setAttribute('muted', '');

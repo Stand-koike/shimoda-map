@@ -532,7 +532,7 @@ function doGet(e) {
   e = e || {};
   var p = e.parameter || {};
   if (p.action === 'clip' && p.id) {
-    return serveLiveVideoClipJsonp_(p.id, p.callback);
+    return serveLiveVideoClipJsonp_(p.id, p.callback, p.full);
   }
   if (p.action === 'video' && p.id) {
     return serveDriveVideoForMap_(p.id);
@@ -544,11 +544,11 @@ function doGet(e) {
  * マップから JSONP で先頭クリップ（base64）を取る。
  * GitHub Pages は Drive を直接読めない。HtmlService iframe の google.script.run / postMessage も届かない。
  */
-function serveLiveVideoClipJsonp_(fileId, callback) {
+function serveLiveVideoClipJsonp_(fileId, callback, full) {
   var cb = String(callback || 'liveVideoClipCb').replace(/[^\w$]/g, '');
   if (!cb) cb = 'liveVideoClipCb';
   try {
-    var b64 = getLiveVideoClipBase64(fileId);
+    var b64 = getLiveVideoClipBase64(fileId, full === '1' || full === 'true');
     return ContentService
       .createTextOutput(cb + '(' + JSON.stringify({ ok: true, b64: b64 }) + ');')
       .setMimeType(ContentService.MimeType.JAVASCRIPT);
@@ -592,7 +592,8 @@ function serveDriveVideoForMap_(fileId) {
 }
 
 /** HtmlService から呼ぶ。先頭約 1.5MB（3秒分+余裕、moov 先頭の mp4 向け） */
-function getLiveVideoClipBase64(fileId) {
+/** HtmlService / JSONP から呼ぶ。full でなければ先頭約 1.5MB（iPhone 確認済み経路） */
+function getLiveVideoClipBase64(fileId, full) {
   var id = String(fileId || '').trim();
   if (!/^[a-zA-Z0-9_-]{10,}$/.test(id)) {
     throw new Error('invalid id');
@@ -601,9 +602,10 @@ function getLiveVideoClipBase64(fileId) {
   if (!isDriveFileAllowedForMapVideo_(file)) {
     throw new Error('forbidden');
   }
-  var full = file.getBlob().getBytes();
-  var maxBytes = 1500000;
-  var bytes = sliceByteArray_(full, maxBytes);
+  var bytes = file.getBlob().getBytes();
+  if (!full) {
+    bytes = sliceByteArray_(bytes, 1500000);
+  }
   return Utilities.base64Encode(bytes);
 }
 
