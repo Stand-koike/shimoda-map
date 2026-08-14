@@ -1325,6 +1325,8 @@
         .card-live-post * { pointer-events: none; }
         .card-live-post video,
         .card-live-post iframe { pointer-events: auto; }
+        .card-live-post .live-video-play-btn,
+        .card-live-post .live-video-ended { pointer-events: auto; }
         /* 画像上に LIVE バッジがあるため、本文エリアはカテゴリ・時刻・1行プレビューのみ */
         .card-live-post--compact { margin-top: 4px; padding: 4px 7px; }
         .card-live-compact-meta {
@@ -1457,6 +1459,13 @@
             font-size: 10px;
             color: #fff;
             opacity: 0.9;
+        }
+        .live-video-frame.is-loading .live-video-play-btn .live-video-play-icon {
+            animation: live-video-spin 0.8s linear infinite;
+        }
+        @keyframes live-video-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
         .mapboxgl-popup.live-video-popup .mapboxgl-popup-content {
             padding: 12px 12px 14px;
@@ -1938,11 +1947,47 @@ function buildLiveVideoProxyUrl_(fileId) {
     return '';
 }
 
-/** Drive から mp4 を直接配信する URL（CORS * / video/mp4） */
+/** Drive から mp4 を直接配信する URL（fetch 用。video src 直指定は CORP same-site でブロックされる） */
 function buildLiveVideoDirectUrl_(fileId) {
     const id = String(fileId || '').trim();
     if (!id) return '';
     return 'https://drive.usercontent.google.com/download?id=' + encodeURIComponent(id) + '&export=download&confirm=t';
+}
+
+/** fileId → blob URL キャッシュ（popup 表示時に prefetch） */
+const liveVideoBlobCache_ = new Map();
+
+function fetchLiveVideoBlobUrl_(fileId) {
+    const id = String(fileId || '').trim();
+    if (!id) return Promise.reject(new Error('no file id'));
+    const cached = liveVideoBlobCache_.get(id);
+    if (cached) {
+        if (cached.blobUrl) return Promise.resolve(cached.blobUrl);
+        return cached.promise;
+    }
+    const entry = { blobUrl: '', promise: null };
+    entry.promise = fetch(buildLiveVideoDirectUrl_(id), { mode: 'cors', credentials: 'omit' })
+        .then((resp) => {
+            if (!resp.ok) throw new Error('HTTP ' + resp.status);
+            return resp.blob();
+        })
+        .then((blob) => {
+            if (!blob || !blob.size) throw new Error('empty blob');
+            const url = URL.createObjectURL(blob);
+            entry.blobUrl = url;
+            return url;
+        })
+        .catch((err) => {
+            liveVideoBlobCache_.delete(id);
+            throw err;
+        });
+    liveVideoBlobCache_.set(id, entry);
+    return entry.promise;
+}
+
+function prefetchLiveVideoBlob_(fileId) {
+    if (!fileId) return;
+    fetchLiveVideoBlobUrl_(fileId).catch(() => { /* ignore */ });
 }
 
 function cleanupLiveVideoClipMedia_(frame) {
@@ -1963,9 +2008,10 @@ function cleanupLiveVideoClipMedia_(frame) {
     }
     frame._clipOnTick = null;
     frame._clipOnEnd = null;
-    if (frame._blobUrl) {
+    if (frame._blobUrl && frame._blobUrlOwned) {
         try { URL.revokeObjectURL(frame._blobUrl); } catch (_) { /* ignore */ }
         frame._blobUrl = '';
+        frame._blobUrlOwned = false;
     }
 }
 
@@ -2036,10 +2082,8 @@ function finishLiveVideoClip_(frame) {
     frame.classList.remove('is-playing');
 }
 
-function startLiveVideoClip_(frame) {
-    if (!frame) return;
-    const fileId = frame.getAttribute('data-file-id') || '';
-    if (!fileId) return;
+function mountAndPlayLiveVideoClip_(frame, blobUrl) {
+    if (!frame || !blobUrl) return;
     cleanupLiveVideoClipMedia_(frame);
 
     const slot = frame.querySelector('.live-video-slot');
@@ -2049,9 +2093,9 @@ function startLiveVideoClip_(frame) {
     if (playBtn) playBtn.hidden = true;
     if (ended) ended.hidden = true;
     if (poster) poster.style.opacity = '0';
+    frame.classList.remove('is-loading');
     frame.classList.add('is-playing');
 
-    const directUrl = buildLiveVideoDirectUrl_(fileId);
     const video = document.createElement('video');
     video.className = 'live-clip-video live-drive-video';
     video.playsInline = true;
@@ -2059,7 +2103,7 @@ function startLiveVideoClip_(frame) {
     video.setAttribute('playsinline', '');
     video.setAttribute('muted', '');
     video.preload = 'auto';
-    video.src = directUrl;
+    video.src = blobUrl;
 
     frame._clipVideo = video;
 
@@ -2078,21 +2122,57 @@ function startLiveVideoClip_(frame) {
         slot.appendChild(video);
     }
 
+    const scheduleFinishTimer_ = () => {
+        if (frame._clipTimer) clearTimeout(frame._clipTimer);
+        frame._clipTimer = setTimeout(() => {
+            finishLiveVideoClip_(frame);
+        }, (LIVE_VIDEO_PLAY_SECONDS * 1000) + 400);
+    };
+
     const tryPlay = () => {
         const p = video.play();
-        if (p && typeof p.catch === 'function') {
-            p.catch(() => stopLiveVideoClip_(frame));
+        if (p && typeof p.then === 'function') {
+            p.then(() => scheduleFinishTimer_()).catch(() => stopLiveVideoClip_(frame));
+        } else {
+            scheduleFinishTimer_();
         }
     };
-    if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-        tryPlay();
-    } else {
+
+    tryPlay();
+    if (video.paused) {
         video.addEventListener('loadeddata', tryPlay, { once: true });
     }
+}
 
-    frame._clipTimer = setTimeout(() => {
-        finishLiveVideoClip_(frame);
-    }, (LIVE_VIDEO_PLAY_SECONDS * 1000) + 1500);
+function startLiveVideoClip_(frame) {
+    if (!frame) return;
+    const fileId = frame.getAttribute('data-file-id') || '';
+    if (!fileId) return;
+    if (frame.classList.contains('is-loading')) return;
+
+    const cached = liveVideoBlobCache_.get(fileId);
+    if (cached && cached.blobUrl) {
+        mountAndPlayLiveVideoClip_(frame, cached.blobUrl);
+        return;
+    }
+
+    cleanupLiveVideoClipMedia_(frame);
+    const playBtn = frame.querySelector('.live-video-play-btn');
+    const ended = frame.querySelector('.live-video-ended');
+    const poster = frame.querySelector('.live-video-poster');
+    if (playBtn) playBtn.hidden = false;
+    if (ended) ended.hidden = true;
+    if (poster) poster.style.opacity = '1';
+    frame.classList.remove('is-playing');
+    frame.classList.add('is-loading');
+
+    fetchLiveVideoBlobUrl_(fileId).then((blobUrl) => {
+        if (!frame.isConnected) return;
+        mountAndPlayLiveVideoClip_(frame, blobUrl);
+    }).catch(() => {
+        frame.classList.remove('is-loading');
+        stopLiveVideoClip_(frame);
+    });
 }
 
 function bindLiveVideoClipPlayer_(root) {
@@ -2100,6 +2180,8 @@ function bindLiveVideoClipPlayer_(root) {
     root.querySelectorAll('[data-live-clip]').forEach((frame) => {
         if (frame.dataset.bound) return;
         frame.dataset.bound = '1';
+        const fileId = frame.getAttribute('data-file-id') || '';
+        if (fileId) prefetchLiveVideoBlob_(fileId);
         const playBtn = frame.querySelector('.live-video-play-btn');
         const ended = frame.querySelector('.live-video-ended');
         if (playBtn) {
