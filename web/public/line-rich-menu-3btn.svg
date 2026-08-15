@@ -1,44 +1,28 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="2500" height="843" viewBox="0 0 2500 843" role="img" aria-label="LINE??????? ??????????">
-  <title>LINE?????????? / ??? / ????</title>
-  <desc>?3???2500�843?????????: ?833 / ?834 / ?833 � ??843???????????????????????</desc>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="2500" height="843" viewBox="0 0 2500 843">
+  <rect width="833" height="843" fill="#2EA094"/>
+  <rect x="833" width="834" height="843" fill="#3AAFA2"/>
+  <rect x="1667" width="833" height="843" fill="#208278"/>
+  <line x1="833" y1="120" x2="833" y2="723" stroke="#fff" stroke-opacity="0.25" stroke-width="3"/>
+  <line x1="1667" y1="120" x2="1667" y2="723" stroke="#fff" stroke-opacity="0.25" stroke-width="3"/>
 
-  <!-- Columns: 833 / 834 / 833 -->
-  <rect x="0" y="0" width="833" height="843" fill="#2EA094"/>
-  <rect x="833" y="0" width="834" height="843" fill="#3AAFA2"/>
-  <rect x="1667" y="0" width="833" height="843" fill="#208278"/>
-
-  <!-- Soft dividers -->
-  <line x1="833" y1="80" x2="833" y2="763" stroke="rgba(255,255,255,0.28)" stroke-width="3"/>
-  <line x1="1667" y1="80" x2="1667" y2="763" stroke="rgba(255,255,255,0.28)" stroke-width="3"/>
-
-  <!-- ===== ?? (center x = 416.5) ===== -->
-  <g transform="translate(416.5 305)" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="-59" y="-70" width="118" height="140" rx="16"/>
-    <rect x="-23" y="-79" width="46" height="18" rx="7"/>
-    <circle cx="0" cy="-28" r="18"/>
-    <path d="M-40 20a40 40 0 0 1 80 0"/>
-    <circle cx="53" cy="62" r="24" fill="#2EA094" stroke="#fff" stroke-width="5"/>
-    <path d="M43 62h20M53 52v20" stroke="#fff" stroke-width="6"/>
+  <g transform="translate(416.5 278) scale(8.5) translate(-12 -12)" fill="#ffffff">
+    <path d="M5.25 6.375C5.25 4.09683 7.09683 2.25 9.375 2.25C11.6532 2.25 13.5 4.09683 13.5 6.375C13.5 8.65317 11.6532 10.5 9.375 10.5C7.09683 10.5 5.25 8.65317 5.25 6.375Z" fill="#ffffff"/>
+<path d="M2.25 19.125C2.25 15.19 5.43997 12 9.375 12C13.31 12 16.5 15.19 16.5 19.125V19.1276C16.5 19.1674 16.4996 19.2074 16.499 19.2469C16.4946 19.5054 16.3574 19.7435 16.1359 19.8768C14.1607 21.0661 11.8466 21.75 9.375 21.75C6.90343 21.75 4.5893 21.0661 2.61406 19.8768C2.39256 19.7435 2.25537 19.5054 2.25103 19.2469C2.25034 19.2064 2.25 19.1657 2.25 19.125Z" fill="#ffffff"/>
+<path d="M18.75 7.5C18.75 7.08579 18.4142 6.75 18 6.75C17.5858 6.75 17.25 7.08579 17.25 7.5V9.75H15C14.5858 9.75 14.25 10.0858 14.25 10.5C14.25 10.9142 14.5858 11.25 15 11.25H17.25V13.5C17.25 13.9142 17.5858 14.25 18 14.25C18.4142 14.25 18.75 13.9142 18.75 13.5V11.25H21C21.4142 11.25 21.75 10.9142 21.75 10.5C21.75 10.0858 21.4142 9.75 21 9.75H18.75V7.5Z" fill="#ffffff"/>
   </g>
-  <text x="416.5" y="545" text-anchor="middle" font-family="Hiragino Sans, Noto Sans JP, Yu Gothic, Meiryo, sans-serif" font-size="96" font-weight="700" fill="#fff">??</text>
-  <text x="416.5" y="665" text-anchor="middle" font-family="Hiragino Sans, Noto Sans JP, Yu Gothic, Meiryo, sans-serif" font-size="42" fill="rgba(255,255,255,0.85)">????????</text>
+  <text x="416.5" y="548" text-anchor="middle" font-family="Noto Sans CJK JP" font-weight="700" font-size="96" fill="#fff">登録</text>
+  <text x="416.5" y="668" text-anchor="middle" font-family="Noto Sans CJK JP" font-weight="500" font-size="42" fill="#fff">店舗・運営・協力</text>
 
-  <!-- ===== ??? (center x = 1250) ===== -->
-  <g transform="translate(1250 305)" fill="none" stroke="#fff" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="0" cy="0" r="78" stroke-width="8"/>
-    <path d="M-22 -28a28 28 0 1 1 28 28L0 18" stroke-width="10"/>
-    <circle cx="0" cy="42" r="8" fill="#fff" stroke="none"/>
+  <g transform="translate(1250 278) scale(8.5) translate(-12 -12)" fill="#ffffff">
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M2.25 12C2.25 6.61522 6.61522 2.25 12 2.25C17.3848 2.25 21.75 6.61522 21.75 12C21.75 17.3848 17.3848 21.75 12 21.75C6.61522 21.75 2.25 17.3848 2.25 12ZM13.6277 8.08328C12.7389 7.30557 11.2616 7.30557 10.3728 8.08328C10.0611 8.35604 9.58723 8.32445 9.31447 8.01272C9.04171 7.701 9.0733 7.22717 9.38503 6.95441C10.8394 5.68186 13.1611 5.68186 14.6154 6.95441C16.1285 8.27835 16.1285 10.4717 14.6154 11.7956C14.3588 12.0202 14.0761 12.2041 13.778 12.3484C13.1018 12.6756 12.7502 13.1222 12.7502 13.5V14.25C12.7502 14.6642 12.4144 15 12.0002 15C11.586 15 11.2502 14.6642 11.2502 14.25V13.5C11.2502 12.221 12.3095 11.3926 13.1246 10.9982C13.3073 10.9098 13.4765 10.799 13.6277 10.6667C14.4577 9.9404 14.4577 8.80959 13.6277 8.08328ZM12 18C12.4142 18 12.75 17.6642 12.75 17.25C12.75 16.8358 12.4142 16.5 12 16.5C11.5858 16.5 11.25 16.8358 11.25 17.25C11.25 17.6642 11.5858 18 12 18Z" fill="#ffffff"/>
   </g>
-  <text x="1250" y="545" text-anchor="middle" font-family="Hiragino Sans, Noto Sans JP, Yu Gothic, Meiryo, sans-serif" font-size="96" font-weight="700" fill="#fff">???</text>
-  <text x="1250" y="665" text-anchor="middle" font-family="Hiragino Sans, Noto Sans JP, Yu Gothic, Meiryo, sans-serif" font-size="42" fill="rgba(255,255,255,0.85)">???????</text>
+  <text x="1250" y="548" text-anchor="middle" font-family="Noto Sans CJK JP" font-weight="700" font-size="96" fill="#fff">ヘルプ</text>
+  <text x="1250" y="668" text-anchor="middle" font-family="Noto Sans CJK JP" font-weight="500" font-size="42" fill="#fff">コマンド・案内</text>
 
-  <!-- ===== ??? (center x = 2083.5) ===== -->
-  <g transform="translate(2083.5 290)" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
-    <circle cx="0" cy="-8" r="44"/>
-    <circle cx="0" cy="-8" r="17" stroke-width="6"/>
-    <path d="M-40 10 L0 92 L40 10"/>
-    <ellipse cx="0" cy="112" rx="30" ry="7" stroke-width="5"/>
+  <g transform="translate(2083.5 270) scale(8.8) translate(-12 -12)" fill="#ffffff">
+    <path fill-rule="evenodd" clip-rule="evenodd" d="M11.5397 22.351C11.57 22.3685 11.5937 22.3821 11.6105 22.3915L11.6384 22.4071C11.8613 22.5294 12.1378 22.5285 12.3608 22.4075L12.3895 22.3915C12.4063 22.3821 12.43 22.3685 12.4603 22.351C12.5207 22.316 12.607 22.265 12.7155 22.1982C12.9325 22.0646 13.2388 21.8676 13.6046 21.6091C14.3351 21.0931 15.3097 20.3274 16.2865 19.3273C18.2307 17.3368 20.25 14.3462 20.25 10.5C20.25 5.94365 16.5563 2.25 12 2.25C7.44365 2.25 3.75 5.94365 3.75 10.5C3.75 14.3462 5.76932 17.3368 7.71346 19.3273C8.69025 20.3274 9.66491 21.0931 10.3954 21.6091C10.7612 21.8676 11.0675 22.0646 11.2845 22.1982C11.393 22.265 11.4793 22.316 11.5397 22.351ZM12 13.5C13.6569 13.5 15 12.1569 15 10.5C15 8.84315 13.6569 7.5 12 7.5C10.3431 7.5 9 8.84315 9 10.5C9 12.1569 10.3431 13.5 12 13.5Z" fill="#ffffff"/>
   </g>
-  <text x="2083.5" y="545" text-anchor="middle" font-family="Hiragino Sans, Noto Sans JP, Yu Gothic, Meiryo, sans-serif" font-size="96" font-weight="700" fill="#fff">???</text>
-  <text x="2083.5" y="665" text-anchor="middle" font-family="Hiragino Sans, Noto Sans JP, Yu Gothic, Meiryo, sans-serif" font-size="42" fill="rgba(255,255,255,0.85)">?????</text>
+  <text x="2083.5" y="548" text-anchor="middle" font-family="Noto Sans CJK JP" font-weight="700" font-size="96" fill="#fff">マップ</text>
+  <text x="2083.5" y="668" text-anchor="middle" font-family="Noto Sans CJK JP" font-weight="500" font-size="42" fill="#fff">地図を開く</text>
 </svg>
