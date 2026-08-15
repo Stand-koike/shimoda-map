@@ -1545,6 +1545,206 @@
         .mapboxgl-popup-content video.live-clip-video {
             pointer-events: auto;
         }
+
+        /* ============================================================
+           DISASTER MODE
+           ============================================================ */
+        .ctrl-btn.disaster-toggle {
+            background: #fff;
+            color: #B71C1C;
+            border: 1.5px solid rgba(183, 28, 28, 0.35);
+        }
+        .ctrl-btn.disaster-toggle.active,
+        .ctrl-btn.disaster-toggle[aria-pressed="true"] {
+            background: #B71C1C;
+            color: #fff;
+            border-color: #B71C1C;
+            box-shadow: 0 4px 14px rgba(183, 28, 28, 0.35);
+        }
+        .disaster-banner {
+            position: absolute;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-120%);
+            z-index: 45;
+            width: min(560px, calc(100vw - 24px));
+            background: linear-gradient(135deg, #3E2723 0%, #5D4037 45%, #4E342E 100%);
+            color: #FFF8E1;
+            border-radius: 14px;
+            padding: 10px 12px 12px;
+            box-shadow: 0 8px 28px rgba(62, 39, 35, 0.45);
+            opacity: 0;
+            pointer-events: none;
+            transition: transform 0.35s ease, opacity 0.35s ease;
+        }
+        .disaster-banner.open {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .disaster-banner-main {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: baseline;
+            gap: 8px 12px;
+            margin-bottom: 8px;
+        }
+        .disaster-banner-main strong {
+            font-size: 15px;
+            letter-spacing: 0.02em;
+        }
+        .disaster-banner-sub {
+            font-size: 12px;
+            opacity: 0.85;
+        }
+        .disaster-filters { display: flex; flex-direction: column; gap: 6px; }
+        .disaster-filter-row {
+            display: flex;
+            flex-wrap: nowrap;
+            gap: 6px;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: none;
+        }
+        .disaster-filter-row::-webkit-scrollbar { display: none; }
+        .disaster-chip {
+            flex: 0 0 auto;
+            border: 1px solid rgba(255, 248, 225, 0.35);
+            background: rgba(255, 255, 255, 0.08);
+            color: #FFF8E1;
+            border-radius: 999px;
+            padding: 5px 10px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .disaster-chip.active {
+            background: #FFF8E1;
+            color: #3E2723;
+            border-color: #FFF8E1;
+        }
+        .disaster-chip.hazard.active {
+            background: var(--haz, #FFF8E1);
+            border-color: transparent;
+            color: #fff;
+        }
+        .disaster-exit-btn {
+            margin-top: 8px;
+            width: 100%;
+            border: none;
+            border-radius: 10px;
+            padding: 8px 12px;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            background: #FFECB3;
+            color: #4E342E;
+        }
+        body.disaster-mode #news-ticker-wrapper { display: none !important; }
+        body.disaster-mode #tab-filter,
+        body.disaster-mode #tab-layer {
+            opacity: 0.45;
+            pointer-events: none;
+        }
+        .disaster-marker { cursor: pointer; }
+        .disaster-marker-inner {
+            width: 36px; height: 36px;
+            border-radius: 50% 50% 50% 4px;
+            transform: rotate(-45deg);
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.35);
+            border: 2px solid #fff;
+        }
+        .disaster-marker.is-place .disaster-marker-inner { background: #C62828; }
+        .disaster-marker.is-shelter .disaster-marker-inner { background: #1565C0; }
+        .disaster-marker-icon {
+            transform: rotate(45deg);
+            color: #fff;
+            font-size: 14px;
+            line-height: 1;
+        }
+        .disaster-marker.active .disaster-marker-inner {
+            outline: 3px solid #FFD54F;
+            outline-offset: 2px;
+        }
+        .disaster-card {
+            position: relative;
+            padding: 12px 14px 12px 14px !important;
+            min-width: 220px;
+        }
+        .disaster-card .card-image-area { display: none; }
+        .disaster-card-badge {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            padding: 2px 8px;
+            border-radius: 6px;
+            margin-bottom: 6px;
+        }
+        .disaster-card.is-place .disaster-card-badge {
+            background: #FFEBEE; color: #B71C1C;
+        }
+        .disaster-card.is-shelter .disaster-card-badge {
+            background: #E3F2FD; color: #0D47A1;
+        }
+        .disaster-card-info { padding: 0 !important; width: 100%; }
+        .disaster-card-addr {
+            font-size: 11px; color: #607D8B; margin-top: 4px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .disaster-card-hazards, .disaster-detail-hazards {
+            display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px;
+        }
+        .disaster-hazard-chip {
+            font-size: 10px; font-weight: 700; color: #fff;
+            padding: 2px 7px; border-radius: 999px;
+        }
+        .disaster-hazard-more { font-size: 10px; color: #78909C; align-self: center; }
+        .disaster-card-notes {
+            margin-top: 6px; font-size: 11px; color: #6D4C41;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .disaster-empty { padding: 20px; color: #555; }
+        .disaster-detail-card {
+            max-width: 420px;
+            padding: 0;
+            overflow: hidden;
+        }
+        .disaster-detail-body { padding: 22px 20px 20px; }
+        .disaster-detail-kind {
+            display: inline-block;
+            font-size: 11px; font-weight: 700;
+            padding: 3px 8px; border-radius: 6px; margin-bottom: 8px;
+        }
+        .disaster-detail-kind.is-place { background: #FFEBEE; color: #B71C1C; }
+        .disaster-detail-kind.is-shelter { background: #E3F2FD; color: #0D47A1; }
+        .disaster-detail-line {
+            display: flex; align-items: flex-start; gap: 8px;
+            font-size: 13px; color: #37474F; margin: 8px 0;
+        }
+        .disaster-detail-line i { margin-top: 2px; color: #78909C; }
+        .disaster-detail-notes {
+            margin: 12px 0; padding: 10px 12px;
+            background: #FFF8E1; border-radius: 8px;
+            font-size: 13px; color: #5D4037; line-height: 1.5;
+        }
+        .disaster-detail-source {
+            font-size: 11px; color: #90A4AE; margin: 10px 0 14px;
+        }
+        @media (max-width: 767px) {
+            .disaster-banner {
+                top: auto;
+                bottom: calc(148px + env(safe-area-inset-bottom, 0px));
+                transform: translateX(-50%) translateY(120%);
+            }
+            .disaster-banner.open {
+                transform: translateX(-50%) translateY(0);
+            }
+            body.disaster-mode .controls-container {
+                top: 12px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -1732,6 +1932,7 @@
 </div>
 
 <!-- secrets / config は <head> で読み込み済み -->
+<script src="js/disaster-mode.js"></script>
 <script>
 'use strict';
 
@@ -3515,6 +3716,9 @@ const MapModule = {
 
     _applyIllustrationTimePhase() {
         if (!this._map) return;
+        if (typeof DisasterMode !== 'undefined' && DisasterMode.shouldSkipIllustrationPhase && DisasterMode.shouldSkipIllustrationPhase()) {
+            return;
+        }
         const keys = ['day', 'sunset', 'night'];
         if (!keys.every(k => this._map.getLayer(`illustration-map-layer-${k}`))) return;
         if (!keys.every(k => {
@@ -4674,6 +4878,9 @@ const App = {
         if (new URLSearchParams(location.search).get('refresh') === '1') {
             State.lastDataHash = '';
         }
+        if (typeof DisasterMode !== 'undefined' && DisasterMode.init) {
+            DisasterMode.init({ State, CONFIG, MapModule, LayerManager, UIModule, App });
+        }
         MapModule.init();
 
         // 安全網: 50 秒後もまだ loading 中なら Retry ボタンを表示して操作できるようにする
@@ -4722,6 +4929,12 @@ const App = {
         document.getElementById('layer-btn-text').innerText  = t('layers');
         const homeText = document.getElementById('home-btn-text');
         if (homeText) homeText.innerText = t('map');
+        const disasterText = document.getElementById('disaster-btn-text');
+        if (disasterText) {
+            disasterText.innerText = (typeof DisasterMode !== 'undefined' && DisasterMode.isActive())
+                ? t('disasterOn')
+                : t('disaster');
+        }
 
         UIModule.generateFilters(State.allSpots);
         UIModule.renderLayerPanel();
@@ -4734,6 +4947,9 @@ const App = {
     },
 
     _applyFilters() {
+        if (typeof DisasterMode !== 'undefined' && DisasterMode.interceptFilters && DisasterMode.interceptFilters()) {
+            return;
+        }
         const targets = State.allSpots.filter(s => {
             const cat = this._effectiveFilterCategorySpot(s);
             if (!this._selectedCategories.has(cat)) return false;

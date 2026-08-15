@@ -11,5 +11,9 @@ window.__SHIMODA_MAP_SECRETS__ = {
     /** LINE 投稿シート名（既定: posts） */
     POSTS_SHEET: 'posts',
     /** 祭イベントスケジュールシート名（既定: event_schedule）。省略可。 */
-    EVENTS_SHEET: 'event_schedule'
+    EVENTS_SHEET: 'event_schedule',
+    /** 指定緊急避難場所シート名（既定: evacuation_places）。省略可。 */
+    EVAC_PLACES_SHEET: 'evacuation_places',
+    /** 指定避難所シート名（既定: evacuation_shelters）。省略可。 */
+    EVAC_SHELTERS_SHEET: 'evacuation_shelters'
 };

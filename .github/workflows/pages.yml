@@ -2,6 +2,7 @@
 # Actions の Repository secrets:
 #   MAPBOX_PUBLIC_TOKEN, GOOGLE_SHEET_ID（必須）
 #   POSTS_SHEET, EVENTS_SHEET, LIVE_VIDEO_PROXY_BASE（任意・LINE動画再生用 GAS /exec URL）
+#   EVAC_PLACES_SHEET, EVAC_SHELTERS_SHEET（任意・災害時モード用シート名）
 # Settings → Pages → Source: GitHub Actions
 #
 # build と deploy を分離し、upload-pages-artifact は build のみ（重複アーティファクト回避）
@@ -36,6 +37,8 @@ jobs:
           POSTS_SHEET: ${{ secrets.POSTS_SHEET }}
           EVENTS_SHEET: ${{ secrets.EVENTS_SHEET }}
           LIVE_VIDEO_PROXY_BASE: ${{ secrets.LIVE_VIDEO_PROXY_BASE }}
+          EVAC_PLACES_SHEET: ${{ secrets.EVAC_PLACES_SHEET }}
+          EVAC_SHELTERS_SHEET: ${{ secrets.EVAC_SHELTERS_SHEET }}
         run: |
           node <<'NODE'
           const fs = require('fs');
@@ -44,13 +47,17 @@ jobs:
           const POSTS_SHEET = (process.env.POSTS_SHEET || '').trim() || 'posts';
           const EVENTS_SHEET = (process.env.EVENTS_SHEET || '').trim() || 'event_schedule';
           const LIVE_VIDEO_PROXY_BASE = (process.env.LIVE_VIDEO_PROXY_BASE || '').trim();
+          const EVAC_PLACES_SHEET = (process.env.EVAC_PLACES_SHEET || '').trim() || 'evacuation_places';
+          const EVAC_SHELTERS_SHEET = (process.env.EVAC_SHELTERS_SHEET || '').trim() || 'evacuation_shelters';
           const body =
             'window.__SHIMODA_MAP_SECRETS__ = {\n' +
             `    MAPBOX_TOKEN: ${JSON.stringify(MAPBOX_TOKEN)},\n` +
             `    SHEET_ID: ${JSON.stringify(SHEET_ID)},\n` +
             `    POSTS_SHEET: ${JSON.stringify(POSTS_SHEET)},\n` +
             `    EVENTS_SHEET: ${JSON.stringify(EVENTS_SHEET)},\n` +
-            `    LIVE_VIDEO_PROXY_BASE: ${JSON.stringify(LIVE_VIDEO_PROXY_BASE)}\n` +
+            `    LIVE_VIDEO_PROXY_BASE: ${JSON.stringify(LIVE_VIDEO_PROXY_BASE)},\n` +
+            `    EVAC_PLACES_SHEET: ${JSON.stringify(EVAC_PLACES_SHEET)},\n` +
+            `    EVAC_SHELTERS_SHEET: ${JSON.stringify(EVAC_SHELTERS_SHEET)}\n` +
             '};\n';
           fs.writeFileSync('web/secrets.local.js', body, 'utf8');
           NODE

@@ -98,6 +98,11 @@ function setupAllSheetsWithDummyDataCore_() {
 
   moveMasterToGvizFirst_(ss, master);
 
+  // 災害時モード用シート（既存ならスキップ。詳細は gas-setup-disaster-sheets.js）
+  if (typeof setupDisasterSheets === 'function') {
+    try { setupDisasterSheets(); } catch (e) { console.warn('setupDisasterSheets:', e); }
+  }
+
   console.log('setupAllSheetsWithDummyData: OK（マスタを先頭に配置済み）');
 }
 
@@ -149,7 +154,8 @@ function reservedSheetNamesMap_() {
   const reserved = {};
   [
     SETUP_NAMES.USER_MAP, SETUP_NAMES.POSTS, SETUP_NAMES.VENUE,
-    SETUP_NAMES.BOT, SETUP_NAMES.PENDING
+    SETUP_NAMES.BOT, SETUP_NAMES.PENDING,
+    'event_schedule', 'evacuation_places', 'evacuation_shelters'
   ].forEach(function (name) { reserved[name] = true; });
   return reserved;
 }
