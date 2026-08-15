@@ -1646,18 +1646,6 @@
             border-color: transparent;
             color: #fff;
         }
-        .disaster-exit-btn {
-            margin-top: 8px;
-            width: 100%;
-            border: none;
-            border-radius: 10px;
-            padding: 8px 12px;
-            font-weight: 700;
-            font-size: 13px;
-            cursor: pointer;
-            background: #FFECB3;
-            color: #4E342E;
-        }
         body.disaster-mode #news-ticker-wrapper { display: none !important; }
         body.disaster-mode #tab-filter,
         body.disaster-mode #tab-layer {
@@ -1780,11 +1768,12 @@
                 display: none !important;
             }
 
-            /* バナーは画面上部（カード・底ナビと衝突させない） */
+            /* バナーは上部左寄せ・右に現在地ボタン用の隙間を残す */
             .disaster-banner {
                 top: max(8px, env(safe-area-inset-top, 0px));
+                left: 8px;
                 bottom: auto;
-                width: calc(100vw - 16px);
+                width: calc(100vw - 68px);
                 max-width: none;
                 max-height: min(38vh, 280px);
                 overflow-y: auto;
@@ -1792,10 +1781,20 @@
                 padding: 8px 10px 10px;
                 border-radius: 12px;
                 z-index: 50;
-                transform: translateX(-50%) translateY(calc(-100% - 16px));
+                transform: translateY(calc(-100% - 16px));
             }
             .disaster-banner.open {
-                transform: translateX(-50%) translateY(0);
+                transform: translateY(0);
+            }
+            /* 現在地／リセットをバナーより前面に（右上のタップ可能領域を確保） */
+            body.disaster-mode .map-controls {
+                z-index: 55;
+                top: max(8px, env(safe-area-inset-top, 0px));
+                right: 10px;
+                pointer-events: auto;
+            }
+            body.disaster-mode .map-controls .btn-control {
+                pointer-events: auto;
             }
             .disaster-banner-main {
                 margin-bottom: 6px;
@@ -1806,12 +1805,6 @@
             .disaster-chip {
                 padding: 4px 8px;
                 font-size: 11px;
-            }
-            .disaster-exit-btn {
-                margin-top: 6px;
-                padding: 7px 10px;
-                font-size: 12px;
-                border-radius: 8px;
             }
 
             /* カードシートを少し低くしてバナー分の余白を確保 */

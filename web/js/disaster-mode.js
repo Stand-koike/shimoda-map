@@ -821,10 +821,8 @@
                 '<div class="disaster-filters" id="disaster-filters">' +
                 '<div class="disaster-filter-row" id="disaster-type-filters"></div>' +
                 '<div class="disaster-filter-row" id="disaster-hazard-filters"></div>' +
-                '</div>' +
-                '<button type="button" class="disaster-exit-btn" id="disaster-exit-btn">通常に戻る</button>';
+                '</div>';
             document.body.appendChild(banner);
-            document.getElementById('disaster-exit-btn').onclick = function () { DisasterMode.exit(); };
 
             var typeRow = document.getElementById('disaster-type-filters');
             [
