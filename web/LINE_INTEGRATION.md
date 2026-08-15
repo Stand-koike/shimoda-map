@@ -173,7 +173,7 @@ GAS の `CATEGORIES` と一致する必要があります（クイックリプ�
 
 **作成場所**は LINE（[LINE Developers](https://developers.line.biz/) または [公式アカウントマネージャー](https://manager.line.biz/)）のリッチメニュー設定。**Webhook 側のコード変更は不要**（メッセージアクションなら既存の `doPost` → `message` 処理のまま）。
 
-**テンプレート画像**: リポジトリに [public/line-rich-menu-3btn.svg](public/line-rich-menu-3btn.svg)（**2500×843** ・横3等分の目安付き）と、Pencil から書き出した **[public/line-rich-menu-3btn.png](public/line-rich-menu-3btn.png)**（同寸・LINE アップロード用）を置いてある。
+**テンプレート画像**: リポジトリに [public/line-rich-menu-3btn.svg](public/line-rich-menu-3btn.svg)（**2500×843** ・横3等分・アイコン付き）と **[public/line-rich-menu-3btn.png](public/line-rich-menu-3btn.png)**（同寸・LINE アップロード用）を置いてある。左から **登録 / ヘルプ / マップ**。
 
 ### 推奨: 3 ボタン（横 1 行×3 など）
 
