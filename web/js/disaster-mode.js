@@ -83,6 +83,8 @@
             this._renderAll();
             this._syncToggleUI();
             this._showBanner(true);
+            var loading = document.getElementById('loading');
+            if (loading) loading.style.display = 'none';
             try {
                 if (typeof gtag === 'function') gtag('event', 'disaster_mode', { action: 'enter' });
             } catch (e) { /* ignore */ }
