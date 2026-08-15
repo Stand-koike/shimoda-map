@@ -211,7 +211,7 @@ const MAX_VIDEO_SIZE_BYTES = 30 * 1024 * 1024;
 /** imageUrl に付与するフラグメント。列追加せず動画と写真を区別する（機能撤回時もシート変更不要） */
 const LIVE_VIDEO_URL_HASH = 'livevideo';
 const DRIVE_FOLDER_NAME = 'LINE_MAP_IMAGES';
-const PENDING_EXPIRE_MS = 1 * 60 * 1000;
+const PENDING_EXPIRE_MS = 5 * 60 * 1000;
 
 const ROLE_STORE = 'store';
 const ROLE_OPERATOR = 'operator';
@@ -281,7 +281,7 @@ const MSG_LINE_REGISTRATION_PASSWORD_NEXT_ =
 const MSG_LINE_REGISTERED_OPERATOR_OK_ =
   '✅ 運営として登録しました。\n投稿の順番の例: 短文テキスト→📸写真または🎬動画（どちらか一方でも可）→スポット番号→カテゴリです。\n※動画はマップで先頭3秒だけ再生されます。';
 const MSG_LINE_REGISTERED_CONTRIBUTOR_OK_ =
-  '✅ 協力者として登録しました。\n投稿は次のどちらかです。\n・📍位置 → 短文 → 📸/🎬 → カテゴリ\n・短文や📸/🎬を先に送り、処理中に📍位置 → カテゴリ\n※動画はマップで先頭3秒だけ再生されます。';
+  '✅ 協力者として登録しました。\n投稿は次のどちらかです。\n・📍位置 → 短文 → 📸/🎬 → カテゴリ\n・短文や📸/🎬を先に送り、処理中に📍位置 → カテゴリ\n※動画はマップで先頭3秒だけ再生されます。\n困ったときは「状況」「やり直す」「ヘルプ」';
 
 /** 店舗登録: メニュー「店舗」またはキーワード「店／店舗」のあと、店舗名だけを促す */
 const MSG_LINE_STORE_AWAITING_NAME_AFTER_SHOP_ONLY_ =
@@ -495,7 +495,8 @@ function doPost(e) {
             replyToken,
             '⚠️ このメッセージ形式には未対応です（type: ' +
               String(msg.type || '?') +
-              '）。\n協力者の投稿: 📍位置→短文→📸/🎬→カテゴリ、または短文・📸/🎬を先に送ってから📍位置でもOKです。'
+              '）。\n使えるのは「短文テキスト」「📸写真」「🎬動画」「📍位置情報」です。\n' +
+              'スタンプ・音声・ファイル・連絡先などは送れません。\n「ヘルプ」「状況」「やり直す」も使えます。'
           );
         }
       } catch (innerErr) {
@@ -679,6 +680,14 @@ function handleTextIncoming(userId, replyToken, text) {
     replyText(replyToken, buildHelpMessage(userId));
     return;
   }
+  if (isPostCancelCommand_(text)) {
+    handlePostCancelCommand_(userId, replyToken);
+    return;
+  }
+  if (isPostStatusCommand_(text)) {
+    handlePostStatusCommand_(userId, replyToken);
+    return;
+  }
   if (isStoreRegistrationOneShot_(text)) {
     const rest = stripStoreRegistrationPrefix_(text);
     handleRegisterCommand(userId, replyToken, '登録 ' + rest);
@@ -757,6 +766,13 @@ function handleTextIncoming(userId, replyToken, text) {
       finalizePostWithCategory(userId, replyToken, user, catPick);
       return;
     }
+    replyText(
+      replyToken,
+      '「' + catPick + '」はカテゴリ選択用です。\n' +
+        '投稿の内容（短文・写真/動画・位置）が揃ったあと、ボタンから選んでください。\n' +
+        'いまの進み具合は「状況」、やり直すときは「やり直す」と送ってください。'
+    );
+    return;
   }
 
   if (ROLE_OPERATOR_ENABLED && user.role === ROLE_OPERATOR && sess.step === STEP_AWAITING_SPOT) {
@@ -775,7 +791,12 @@ function handleTextIncoming(userId, replyToken, text) {
   sess = getSession(userId);
 
   if (user.role === ROLE_STORE && sess.step === STEP_AWAITING_CATEGORY) {
-    replyText(replyToken, 'カテゴリをボタンから選んでください👇');
+    replyWithCategoryQuickReply(replyToken, 'カテゴリをボタンから選んでください👇\nやめるときは「やり直す」');
+    return;
+  }
+
+  if (user.role === ROLE_CONTRIBUTOR && sess.step === STEP_AWAITING_CATEGORY) {
+    replyWithCategoryQuickReply(replyToken, 'カテゴリをボタンから選んでください👇\nやめるときは「やり直す」');
     return;
   }
 
@@ -808,18 +829,30 @@ function handleImageIncoming(userId, replyToken, messageId) {
     return;
   }
 
+  const sessGate = getSession(userId);
+  if (sessGate.step === STEP_AWAITING_CATEGORY) {
+    replyWithCategoryQuickReply(
+      replyToken,
+      'カテゴリ選択の途中です。下のボタンから選ぶか、「やり直す」で最初からにしてください。'
+    );
+    return;
+  }
+
   if (shouldEarlyAckContributorMedia_(userId, user)) {
+    const hadDraft = !!resolveContributorDraftBeforeLocation_(userId).imageUrl;
+    beginContributorMediaProcessing_(userId);
     replyText(
       replyToken,
-      '📸 写真を受け取りました。\n処理のあいだに📍位置情報を送ってください（「＋」→位置情報）。'
+      (hadDraft ? '📸 写真を更新して受け取りました。\n' : '📸 写真を受け取りました。\n') +
+        '処理のあいだに📍位置情報を送ってください（「＋」→位置情報）。\n' +
+        '進み具合は「状況」、やめるときは「やり直す」です。'
     );
     try {
       const imageUrl = fetchLineImageToDrive(messageId);
-      acceptContributorMediaBeforeLocation_(userId, imageUrl);
-      pushText(userId, '✅ 写真の準備ができました。まだなら📍位置情報を送ってください。');
+      finishContributorMediaProcessing_(userId, imageUrl, '写真');
     } catch (err) {
       console.error('[handleImageIncoming]', err);
-      pushText(userId, '⚠️ 画像の取得に失敗しました。もう一度お試しください。');
+      failContributorMediaProcessing_(userId, '⚠️ 画像の取得に失敗しました。もう一度写真を送ってください。');
     }
     return;
   }
@@ -847,22 +880,38 @@ function handleVideoIncoming(userId, replyToken, msg) {
     return;
   }
 
+  const sessGate = getSession(userId);
+  if (sessGate.step === STEP_AWAITING_CATEGORY) {
+    replyWithCategoryQuickReply(
+      replyToken,
+      'カテゴリ選択の途中です。下のボタンから選ぶか、「やり直す」で最初からにしてください。'
+    );
+    return;
+  }
+
   if (shouldEarlyAckContributorMedia_(userId, user)) {
+    const hadDraft = !!resolveContributorDraftBeforeLocation_(userId).imageUrl;
+    beginContributorMediaProcessing_(userId);
     replyText(
       replyToken,
-      '🎬 動画を受け取りました。\n処理のあいだに📍位置情報を送ってください（「＋」→位置情報）。\n※マップでは先頭3秒だけ再生されます。'
+      (hadDraft ? '🎬 動画を更新して受け取りました。\n' : '🎬 動画を受け取りました。\n') +
+        '処理のあいだに📍位置情報を送ってください（「＋」→位置情報）。\n' +
+        '※マップでは先頭3秒だけ再生されます。\n' +
+        '進み具合は「状況」、やめるときは「やり直す」です。'
     );
     try {
       const media = fetchLineVideoToDrive(msg.id);
-      acceptContributorMediaBeforeLocation_(userId, media.imageUrl);
-      pushText(userId, '✅ 動画の準備ができました。まだなら📍位置情報を送ってください。');
+      finishContributorMediaProcessing_(userId, media.imageUrl, '動画');
     } catch (err) {
       console.error('[handleVideoIncoming]', err);
       const detail = String(err && err.message ? err.message : err);
       if (detail.indexOf('サイズ上限') >= 0) {
-        pushText(userId, '⚠️ 動画ファイルが大きすぎます。より短い／軽い動画を送ってください。');
+        failContributorMediaProcessing_(
+          userId,
+          '⚠️ 動画ファイルが大きすぎます。より短い／軽い動画を送ってください。'
+        );
       } else {
-        pushText(userId, '⚠️ 動画の取得に失敗しました。もう一度お試しください。');
+        failContributorMediaProcessing_(userId, '⚠️ 動画の取得に失敗しました。もう一度送ってください。');
       }
     }
     return;
@@ -893,6 +942,89 @@ function shouldEarlyAckContributorMedia_(userId, user) {
   return true;
 }
 
+/** メディア処理開始（位置を先に受けても座標だけ保持できるようにする） */
+function beginContributorMediaProcessing_(userId) {
+  const sess = getSession(userId);
+  const pending = loadPending(userId);
+  const textFromSess = sess.payload && sess.payload.text ? String(sess.payload.text) : '';
+  const textFromPending = pending && pending.message ? String(pending.message) : '';
+  const text = (textFromSess || textFromPending || '').substring(0, MAX_MESSAGE_LENGTH);
+  const prevImg = sess.payload && sess.payload.imageUrl ? String(sess.payload.imageUrl) : '';
+  savePending(userId, '_liv_', text, prevImg || undefined);
+  setSession(userId, STEP_AWAITING_LOCATION, {
+    text: text,
+    imageUrl: prevImg,
+    lat: sess.payload.lat != null ? sess.payload.lat : null,
+    lng: sess.payload.lng != null ? sess.payload.lng : null,
+    spotId: '',
+    spotName: '',
+    mediaProcessing: true
+  });
+}
+
+function finishContributorMediaProcessing_(userId, imageUrl, mediaJa) {
+  const url = imageUrl ? String(imageUrl) : '';
+  const sess = getSession(userId);
+  const p = sess.payload || {};
+  const text = (p.text ? String(p.text) : '').substring(0, MAX_MESSAGE_LENGTH);
+  const lat = p.lat != null ? Number(p.lat) : NaN;
+  const lng = p.lng != null ? Number(p.lng) : NaN;
+  const hasLoc = isFinite(lat) && isFinite(lng);
+
+  savePending(userId, '_liv_', text, url);
+
+  if (hasLoc) {
+    deletePending(userId);
+    setSession(userId, STEP_AWAITING_CATEGORY, {
+      text: text,
+      imageUrl: url,
+      lat: lat,
+      lng: lng,
+      spotId: '',
+      spotName: ''
+    });
+    replyWithCategoryQuickReplyPush(
+      userId,
+      '✅ ' + mediaJa + 'の準備と📍位置がそろいました。カテゴリを選んでください👇'
+    );
+    return;
+  }
+
+  setSession(userId, STEP_AWAITING_LOCATION, {
+    text: text,
+    imageUrl: url,
+    lat: null,
+    lng: null,
+    spotId: '',
+    spotName: '',
+    mediaProcessing: false
+  });
+  pushText(
+    userId,
+    '✅ ' + mediaJa + 'の準備ができました。まだなら📍位置情報を送ってください（「＋」→位置情報）。'
+  );
+}
+
+function failContributorMediaProcessing_(userId, message) {
+  const sess = getSession(userId);
+  const p = sess.payload || {};
+  const text = (p.text ? String(p.text) : '').substring(0, MAX_MESSAGE_LENGTH);
+  const prevImg = p.imageUrl ? String(p.imageUrl) : '';
+  setSession(userId, STEP_AWAITING_LOCATION, {
+    text: text,
+    imageUrl: prevImg,
+    lat: p.lat != null ? p.lat : null,
+    lng: p.lng != null ? p.lng : null,
+    spotId: '',
+    spotName: '',
+    mediaProcessing: false
+  });
+  if (text || prevImg) {
+    savePending(userId, '_liv_', text, prevImg || undefined);
+  }
+  pushText(userId, message + '\n進み具合は「状況」、やめるときは「やり直す」です。');
+}
+
 /**
  * 位置より先に届いたメディアを session / pending に保持（シート列は増やさない）。
  */
@@ -910,7 +1042,8 @@ function acceptContributorMediaBeforeLocation_(userId, imageUrl) {
     lat: null,
     lng: null,
     spotId: '',
-    spotName: ''
+    spotName: '',
+    mediaProcessing: false
   });
 }
 
@@ -938,6 +1071,14 @@ function handleMediaIncoming(userId, replyToken, media) {
   }
 
   const sessImg = getSession(userId);
+  if (sessImg.step === STEP_AWAITING_CATEGORY) {
+    replyWithCategoryQuickReply(
+      replyToken,
+      'カテゴリ選択の途中です。下のボタンから選ぶか、「やり直す」で最初からにしてください。'
+    );
+    return;
+  }
+
   const inGpsContentFlow =
     sessImg.payload.lat != null &&
     sessImg.payload.lng != null &&
@@ -951,7 +1092,7 @@ function handleMediaIncoming(userId, replyToken, media) {
       acceptContributorMediaBeforeLocation_(userId, imageUrl);
       replyText(
         replyToken,
-        mediaLabel + 'を受け取りました。\n続けて📍位置情報を送ってください（「＋」→位置情報）。'
+        mediaLabel + 'を受け取りました。\n続けて📍位置情報を送ってください（「＋」→位置情報）。\nやめるときは「やり直す」です。'
       );
       return;
     }
@@ -1018,6 +1159,28 @@ function handleLocationIncoming(userId, replyToken, lat, lng) {
       return;
     }
 
+    if (sessLoc.step === STEP_AWAITING_CATEGORY) {
+      replyWithCategoryQuickReply(
+        replyToken,
+        'カテゴリ選択の途中です。位置の送り直しは「やり直す」のあとでお願いします👇'
+      );
+      return;
+    }
+
+    // 協力者: メディア処理中に位置が来たら座標だけ保持（ロック待ち後でも安全）
+    if (user.role === ROLE_CONTRIBUTOR && sessLoc.payload && sessLoc.payload.mediaProcessing) {
+      setSession(userId, STEP_AWAITING_LOCATION, Object.assign({}, sessLoc.payload, {
+        lat: latNum,
+        lng: lngNum,
+        mediaProcessing: true
+      }));
+      replyText(
+        replyToken,
+        '📍位置を受け取りました。\nメディア処理が終わり次第、カテゴリ選択に進みます。少々お待ちください。'
+      );
+      return;
+    }
+
     // 協力者: メディア／テキストが先に来ている場合は位置を付けてカテゴリへ（シート列変更なし）
     if (user.role === ROLE_CONTRIBUTOR) {
       const draft = resolveContributorDraftBeforeLocation_(userId);
@@ -1052,7 +1215,7 @@ function handleLocationIncoming(userId, replyToken, lat, lng) {
           replyToken,
           '📍位置を受け取りました。\n続けて📸写真または🎬動画を送ってください（' +
             (PENDING_EXPIRE_MS / 60000) +
-            '分以内）。\n※動画はマップで先頭3秒だけ再生されます。'
+            '分以内）。\n※動画はマップで先頭3秒だけ再生されます。\nやめるときは「やり直す」です。'
         );
         return;
       }
@@ -1078,7 +1241,7 @@ function handleLocationIncoming(userId, replyToken, lat, lng) {
         : '';
     replyText(
       replyToken,
-      '📍位置を受け取りました。\n【順番】①短文テキスト（50字まで）→②📸写真または🎬動画 →③カテゴリ（あとでボタン）\n短文・写真/動画を先に送ることもできます。\n※動画はマップで先頭3秒だけ再生されます。' +
+      '📍位置を受け取りました。\n【順番】①短文テキスト（50字まで）→②📸写真または🎬動画 →③カテゴリ（あとでボタン）\n短文・写真/動画を先に送ることもできます。\n※動画はマップで先頭3秒だけ再生されます。\n「状況」「やり直す」も使えます。' +
         tail
     );
   } catch (err) {
@@ -1237,7 +1400,7 @@ function handleContributorContentText(userId, replyToken, user, text) {
   }
   savePending(userId, '_liv_', truncated);
   replyText(replyToken,
-    `📝 受け付けました「${truncated}」\n【順番: テキスト→写真または動画】続けて📸写真または🎬動画を送ってください（${PENDING_EXPIRE_MS / 60000}分以内）`);
+    `📝 受け付けました「${truncated}」\n続けて📸写真または🎬動画を送ってください（${PENDING_EXPIRE_MS / 60000}分以内）。\nやめるときは「やり直す」です。`);
 }
 
 /** session / pending から位置付け前の下書きを読む（列追加なし） */
@@ -1261,15 +1424,156 @@ function resolveContributorDraftBeforeLocation_(userId) {
 }
 
 function handleContributorMedia(userId, replyToken, user, imageUrl) {
+  const sess = getSession(userId);
   const pendingTxt = loadPending(userId);
-  if (!pendingTxt || !String(pendingTxt.message || '').trim()) {
-    replyText(
+  const textFromPending = pendingTxt ? String(pendingTxt.message || '').trim() : '';
+  const textFromSess = sess.payload && sess.payload.text ? String(sess.payload.text).trim() : '';
+  const text = textFromPending || textFromSess;
+
+  // 位置取得後: 短文なしでもメディアだけでカテゴリへ（短文必須だと詰まりやすい）
+  if (!text) {
+    deletePending(userId);
+    setSession(userId, STEP_AWAITING_CATEGORY, {
+      text: '',
+      imageUrl: imageUrl || '',
+      lat: sess.payload.lat,
+      lng: sess.payload.lng,
+      spotId: sess.payload.spotId || '',
+      spotName: sess.payload.spotName || ''
+    });
+    replyWithCategoryQuickReply(
       replyToken,
-      '位置情報付きの投稿は【順番: 短文テキスト→📸写真または🎬動画】です。\n短文を先に送ってから写真または動画を送ってください。（メディアだけ先に送ると正しく処理できません）'
+      '写真/動画を受け取りました。カテゴリを選んでください👇\n（短文なしでも投稿できます。やめるときは「やり直す」）'
     );
     return;
   }
   mergeImageWithPendingThenAskCategory(userId, replyToken, user, imageUrl || '');
+}
+
+function isPostCancelCommand_(text) {
+  const t = String(text || '').trim();
+  return /^(やり直す|やりなおす|キャンセル|やめる|中止|投稿やめる|投稿キャンセル)$/i.test(t);
+}
+
+function isPostStatusCommand_(text) {
+  const t = String(text || '').trim();
+  return /^(状況|いま|ステータス|status)$/i.test(t);
+}
+
+function handlePostCancelCommand_(userId, replyToken) {
+  const user = getUserRecord(userId);
+  const sess = getSession(userId);
+  const wasPostFlow =
+    sess.step === STEP_AWAITING_CONTENT ||
+    sess.step === STEP_AWAITING_LOCATION ||
+    sess.step === STEP_AWAITING_CATEGORY ||
+    sess.step === STEP_AWAITING_SPOT ||
+    !!loadPending(userId);
+
+  // 登録フロー中の「やめる」は登録解除を案内（誤って投稿だけ消さない）
+  if (
+    sess.step === STEP_AWAITING_REGISTER_STORE_ID ||
+    sess.step === STEP_AWAITING_REGISTRATION_PASSWORD ||
+    sess.step === STEP_AWAITING_STORE_LOCATION
+  ) {
+    replyText(
+      replyToken,
+      '登録の途中です。やめる場合は「登録解除」と送ってください。\n投稿のやり直しは、登録完了後に「やり直す」です。'
+    );
+    return;
+  }
+
+  deleteSession(userId);
+  deletePending(userId);
+  if (!user || user.isActive === false) {
+    replyText(replyToken, '途中の入力をクリアしました。\n「ヘルプ」または「登録」から続けてください。');
+    return;
+  }
+  replyText(
+    replyToken,
+    wasPostFlow
+      ? '✅ 投稿をキャンセルしました。はじめから送れます。\n「ヘルプ」で手順を確認できます。'
+      : 'クリアする途中の投稿はありませんでした。\n「ヘルプ」で手順を確認できます。'
+  );
+}
+
+function handlePostStatusCommand_(userId, replyToken) {
+  const user = getUserRecord(userId);
+  if (!user || user.isActive === false) {
+    replyText(replyToken, buildUnknownUserMessage(userId));
+    return;
+  }
+  replyText(replyToken, buildPostStatusMessage_(userId, user));
+}
+
+function buildPostStatusMessage_(userId, user) {
+  const sess = getSession(userId);
+  const draft = resolveContributorDraftBeforeLocation_(userId);
+  const pending = loadPending(userId);
+  const lines = ['📋 いまの状況'];
+  lines.push('ロール: ' + (user.role === ROLE_STORE ? '店舗' : user.role === ROLE_OPERATOR ? '運営' : '協力者'));
+
+  if (sess.step === STEP_AWAITING_CATEGORY) {
+    lines.push('次にやること: カテゴリをボタンから選ぶ');
+    if (sess.payload.text) lines.push('短文: あり');
+    if (sess.payload.imageUrl) {
+      lines.push(isLiveVideoImageUrl_(sess.payload.imageUrl) ? 'メディア: 動画あり' : 'メディア: 写真あり');
+    }
+    if (sess.payload.lat != null) lines.push('位置: あり');
+    lines.push('やめるときは「やり直す」');
+    return lines.join('\n');
+  }
+
+  if (sess.payload && sess.payload.mediaProcessing) {
+    lines.push('状態: メディアを処理中');
+    if (sess.payload.lat != null) lines.push('位置: 受け取り済み（処理完了待ち）');
+    else lines.push('次にやること: 処理中でも📍位置情報を送れます');
+    lines.push('やめるときは「やり直す」');
+    return lines.join('\n');
+  }
+
+  if (sess.step === STEP_AWAITING_LOCATION || draft.imageUrl || (draft.text && (sess.payload.lat == null))) {
+    lines.push('状態: 位置情報待ち');
+    if (draft.text) lines.push('短文: あり');
+    if (draft.imageUrl) {
+      lines.push(isLiveVideoImageUrl_(draft.imageUrl) ? 'メディア: 動画あり' : 'メディア: 写真あり');
+    } else {
+      lines.push('メディア: まだ');
+    }
+    lines.push('次にやること: 「＋」→📍位置情報');
+    lines.push('やめるときは「やり直す」');
+    return lines.join('\n');
+  }
+
+  if (sess.step === STEP_AWAITING_CONTENT && sess.payload.lat != null) {
+    lines.push('状態: 位置受け取り済み');
+    const hasText = !!(sess.payload.text || (pending && pending.message));
+    const hasMedia = !!(sess.payload.imageUrl || (pending && pending.imageUrl));
+    lines.push('短文: ' + (hasText ? 'あり' : 'まだ'));
+    lines.push('メディア: ' + (hasMedia ? 'あり' : 'まだ'));
+    if (!hasText) lines.push('次にやること: 短文テキスト（なくても写真/動画可）');
+    else if (!hasMedia) lines.push('次にやること: 📸写真または🎬動画');
+    else lines.push('次にやること: カテゴリ選択へ進めるはずです。「やり直す」でリセットも可');
+    return lines.join('\n');
+  }
+
+  if (sess.step === STEP_AWAITING_SPOT) {
+    lines.push('次にやること: スポット番号を送る');
+    return lines.join('\n');
+  }
+
+  if (pending && (pending.message || pending.imageUrl)) {
+    lines.push('状態: 下書きあり（位置または続き待ち）');
+    if (pending.message) lines.push('短文: あり');
+    if (pending.imageUrl) lines.push('メディア: あり');
+    lines.push('やめるときは「やり直す」');
+    return lines.join('\n');
+  }
+
+  lines.push('状態: 投稿の途中ではありません');
+  lines.push('協力者なら 📍位置 または 短文/📸/🎬 から始められます');
+  lines.push('「ヘルプ」で手順を確認できます');
+  return lines.join('\n');
 }
 
 function handleOperatorSpotNumber(userId, replyToken, n) {
@@ -1300,7 +1604,10 @@ function finalizePostWithCategory(userId, replyToken, user, category) {
   }
   const sess = getSession(userId);
   if (sess.step !== STEP_AWAITING_CATEGORY) {
-    replyText(replyToken, 'カテゴリ選択のタイミングではありません。投稿を送り直してください。');
+    replyText(
+      replyToken,
+      'カテゴリ選択のタイミングではありません。\n「状況」で進み具合を確認するか、「やり直す」で最初から投稿してください。'
+    );
     return;
   }
   const { text, imageUrl, lat, lng, spotId, spotName } = sess.payload;
@@ -2228,7 +2535,7 @@ function buildUnknownUserMessage(userId) {
 
 function buildHelpMessage(userId) {
   const head =
-    '📖 コマンド\nマイID / ヘルプ / 登録確認 / 登録解除\n\n' +
+    '📖 コマンド\nマイID / ヘルプ / 状況 / やり直す / 登録確認 / 登録解除\n\n' +
     '📍 登録:「登録」と送る\n' +
     MSG_LINE_HELP_REGISTER_STORE_HINT_;
 
@@ -2241,14 +2548,17 @@ function buildHelpMessage(userId) {
   } else if (u.role === ROLE_STORE) {
     flow =
       '📝 店舗投稿の順番: 短文テキスト→📸写真または🎬動画→カテゴリ（ボタン）\n座標はスプレッドシート側のお店情報を使用します。\n動画はマップで先頭3秒だけ再生されます。\n' +
-      '📍移動中の投稿の順番: 📍位置情報→短文テキスト→📸写真または🎬動画→カテゴリ（現在地がマップに出ます）';
+      '📍移動中の投稿の順番: 📍位置情報→短文テキスト→📸写真または🎬動画→カテゴリ（現在地がマップに出ます）\n' +
+      '困ったとき: 「状況」で進み具合確認、「やり直す」でリセット';
   } else if (u.role === ROLE_OPERATOR) {
     flow = ROLE_OPERATOR_ENABLED
       ? '📝 運営投稿の順番: 短文テキストまたは📸写真／🎬動画→番号でスポット→カテゴリ\n⚠️ venue_spots にスポットを登録しておいてください'
       : MSG_LINE_OPERATOR_ROLE_SUSPENDED_;
   } else {
     flow =
-      '📝 協力者投稿:\n・📍位置→短文→📸/🎬→カテゴリ\n・または短文・📸/🎬を先に送り、処理中に📍位置→カテゴリ\n※動画はマップで先頭3秒だけ再生されます';
+      '📝 協力者投稿:\n・📍位置→短文→📸/🎬→カテゴリ\n・または短文・📸/🎬を先に送り、処理中に📍位置→カテゴリ\n' +
+      '※動画はマップで先頭3秒だけ再生されます\n' +
+      '※スタンプ等は不可。「状況」「やり直す」が使えます';
   }
   return head + flow + `\n\n文字数:${MAX_MESSAGE_LENGTH}文字まで`;
 }
