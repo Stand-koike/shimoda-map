@@ -44,7 +44,17 @@
             this._loadData();
             if (new URLSearchParams(location.search).get('disaster') === '1') {
                 var self = this;
-                setTimeout(function () { self.enter(); }, 800);
+                var tries = 0;
+                var wait = function () {
+                    tries += 1;
+                    if (self._deps.MapModule && self._deps.MapModule._map && self._deps.MapModule._loaded) {
+                        self.enter();
+                        return;
+                    }
+                    if (tries < 40) setTimeout(wait, 250);
+                    else self.enter();
+                };
+                setTimeout(wait, 400);
             }
         },
 
@@ -273,13 +283,35 @@
                 var placeRows = pair[0];
                 var shelterRows = pair[1];
                 if (!placeRows && !shelterRows) return false;
-                if (placeRows) self.places = self._parsePlaceRows(placeRows);
-                if (shelterRows) self.shelters = self._parseShelterRows(shelterRows);
+                if (placeRows && self._isEvacPlacesTable(placeRows)) {
+                    self.places = self._parsePlaceRows(placeRows);
+                }
+                if (shelterRows && self._isEvacSheltersTable(shelterRows)) {
+                    self.shelters = self._parseShelterRows(shelterRows);
+                }
                 return self.places.length > 0 || self.shelters.length > 0;
             }).catch(function (err) {
                 console.warn('[DisasterMode] sheets 取得失敗', err);
                 return false;
             });
+        },
+
+        _colLabel: function (table, i) {
+            var cols = table && table.cols;
+            if (!cols || !cols[i]) return '';
+            return String(cols[i].label || cols[i].id || '').trim().toLowerCase();
+        },
+
+        _isEvacPlacesTable: function (table) {
+            // id, no, name, lat, lng ...（店舗マスタの _reserved/name と区別）
+            var a = this._colLabel(table, 0);
+            var c = this._colLabel(table, 2);
+            var d = this._colLabel(table, 3);
+            return a === 'id' && c === 'name' && (d === 'lat' || d === 'latitude');
+        },
+
+        _isEvacSheltersTable: function (table) {
+            return this._isEvacPlacesTable(table);
         },
 
         _gvizSheet: function (sheetName) {
@@ -414,51 +446,67 @@
         _pauseIllustrationAndShowBase: function () {
             var map = this._deps.MapModule._map;
             var MapModule = this._deps.MapModule;
+            var self = this;
             this._illustrationPaused = true;
             if (MapModule._illustrationTimer) {
                 clearInterval(MapModule._illustrationTimer);
                 MapModule._illustrationTimer = null;
             }
 
-            var token = this._deps.CONFIG.MAPBOX_TOKEN || '';
-            if (!map.getSource('disaster-streets')) {
+            // 国土地理院タイル（トークン不要・国内災害用途向き）。Mapbox ラスターは URL/権限差で落ちやすい。
+            if (!map.getSource('disaster-basemap')) {
                 try {
-                    map.addSource('disaster-streets', {
+                    map.addSource('disaster-basemap', {
                         type: 'raster',
                         tiles: [
-                            'https://api.mapbox.com/styles/v1/mapbox/outdoors-v12/tiles/{z}/{x}/{y}@2x?access_token=' +
-                                encodeURIComponent(token)
+                            'https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'
                         ],
-                        tileSize: 512,
-                        attribution: '© Mapbox © OpenStreetMap'
+                        tileSize: 256,
+                        attribution: '© 国土地理院',
+                        maxzoom: 18
                     });
                     map.addLayer({
-                        id: 'disaster-streets-layer',
+                        id: 'disaster-basemap-layer',
                         type: 'raster',
-                        source: 'disaster-streets',
+                        source: 'disaster-basemap',
                         paint: { 'raster-opacity': 1 }
-                    }, this._firstIllustrationLayerId());
+                    }, this._layerBeforeId());
                 } catch (e) {
-                    console.warn('[DisasterMode] streets layer', e);
+                    console.warn('[DisasterMode] basemap layer', e);
                 }
-            } else if (map.getLayer('disaster-streets-layer')) {
-                map.setLayoutProperty('disaster-streets-layer', 'visibility', 'visible');
+            } else if (map.getLayer('disaster-basemap-layer')) {
+                try {
+                    map.setLayoutProperty('disaster-basemap-layer', 'visibility', 'visible');
+                    map.setPaintProperty('disaster-basemap-layer', 'raster-opacity', 1);
+                } catch (e) { /* ignore */ }
             }
 
-            ['day', 'sunset', 'night'].forEach(function (key) {
-                var lid = 'illustration-map-layer-' + key;
-                if (map.getLayer(lid)) {
-                    try { map.setPaintProperty(lid, 'raster-opacity', 0.22); } catch (e) { /* ignore */ }
-                }
-            });
+            this._hideIllustrationLayers();
             try {
                 if (map.getLayer('illustration-sky-bg')) {
                     map.setPaintProperty('illustration-sky-bg', 'background-color', '#E8EEF2');
                 }
             } catch (e) { /* ignore */ }
+
+            // イラストが遅延追加されても覆い隠さないよう再適用
+            if (!this._basemapWatchBound) {
+                this._basemapWatchBound = function () {
+                    if (!self.active) return;
+                    self._hideIllustrationLayers();
+                    self._ensureBasemapOnBottom();
+                };
+                map.on('sourcedata', this._basemapWatchBound);
+                map.on('styledata', this._basemapWatchBound);
+            }
+            setTimeout(function () {
+                if (self.active) {
+                    self._hideIllustrationLayers();
+                    self._ensureBasemapOnBottom();
+                }
+            }, 1200);
         },
 
-        _firstIllustrationLayerId: function () {
+        _layerBeforeId: function () {
             var map = this._deps.MapModule._map;
             var candidates = [
                 'illustration-map-layer-day',
@@ -471,14 +519,52 @@
             return undefined;
         },
 
+        _hideIllustrationLayers: function () {
+            var map = this._deps.MapModule._map;
+            if (!map) return;
+            ['day', 'sunset', 'night'].forEach(function (key) {
+                var lid = 'illustration-map-layer-' + key;
+                if (!map.getLayer(lid)) return;
+                try {
+                    map.setPaintProperty(lid, 'raster-opacity', 0);
+                    map.setLayoutProperty(lid, 'visibility', 'none');
+                } catch (e) { /* ignore */ }
+            });
+        },
+
+        _ensureBasemapOnBottom: function () {
+            var map = this._deps.MapModule._map;
+            if (!map || !map.getLayer('disaster-basemap-layer')) return;
+            try {
+                map.setLayoutProperty('disaster-basemap-layer', 'visibility', 'visible');
+                // 背景の直後＝最背面付近へ（マーカー HTML は別レイヤなので影響なし）
+                if (map.getLayer('illustration-sky-bg')) {
+                    map.moveLayer('disaster-basemap-layer', this._layerBeforeId());
+                }
+            } catch (e) { /* ignore */ }
+        },
+
         _resumeIllustration: function () {
             var map = this._deps.MapModule._map;
             var MapModule = this._deps.MapModule;
             this._illustrationPaused = false;
 
-            if (map.getLayer('disaster-streets-layer')) {
-                try { map.setLayoutProperty('disaster-streets-layer', 'visibility', 'none'); } catch (e) { /* ignore */ }
+            if (this._basemapWatchBound && map) {
+                try {
+                    map.off('sourcedata', this._basemapWatchBound);
+                    map.off('styledata', this._basemapWatchBound);
+                } catch (e) { /* ignore */ }
+                this._basemapWatchBound = null;
             }
+
+            if (map.getLayer('disaster-basemap-layer')) {
+                try { map.setLayoutProperty('disaster-basemap-layer', 'visibility', 'none'); } catch (e) { /* ignore */ }
+            }
+            ['day', 'sunset', 'night'].forEach(function (key) {
+                var lid = 'illustration-map-layer-' + key;
+                if (!map.getLayer(lid)) return;
+                try { map.setLayoutProperty(lid, 'visibility', 'visible'); } catch (e) { /* ignore */ }
+            });
             try {
                 if (map.getLayer('illustration-sky-bg')) {
                     map.setPaintProperty('illustration-sky-bg', 'background-color', '#A8D8E8');
