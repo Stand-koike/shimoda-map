@@ -794,12 +794,20 @@
                 btn.id = 'tab-disaster';
                 btn.type = 'button';
                 btn.setAttribute('aria-pressed', 'false');
-                btn.innerHTML = '<i class="fas fa-house-flood-water"></i> <span id="disaster-btn-text">災害時</span>';
+                btn.innerHTML = '<i class="fas fa-house-flood-water"></i> <span id="disaster-btn-text">' +
+                    (window.innerWidth < 768 ? '災害' : '災害時') + '</span>';
                 btn.onclick = function () { DisasterMode.toggle(); };
                 // 言語ボタンの前へ
                 var langBtn = document.getElementById('tab-lang');
                 if (langBtn) controls.insertBefore(btn, langBtn);
                 else controls.appendChild(btn);
+
+                // モバイルで災害時に隠す補助タブ（:has 非依存）
+                ['tab-filter', 'tab-layer'].forEach(function (id) {
+                    var el = document.getElementById(id);
+                    var wrap = el && el.closest ? el.closest('.ctrl-panel-wrapper') : null;
+                    if (wrap) wrap.classList.add('disaster-aux-tab');
+                });
             }
 
             var banner = document.createElement('div');
@@ -891,9 +899,14 @@
             var btn = document.getElementById('tab-disaster');
             if (!btn) return;
             btn.classList.toggle('active', this.active);
+            btn.classList.toggle('tab-active', this.active);
             btn.setAttribute('aria-pressed', this.active ? 'true' : 'false');
             var text = document.getElementById('disaster-btn-text');
-            if (text) text.textContent = this.active ? '災害ON' : '災害時';
+            if (text) {
+                var narrow = typeof window !== 'undefined' && window.innerWidth < 768;
+                if (this.active) text.textContent = narrow ? '災害ON' : '災害ON';
+                else text.textContent = narrow ? '災害' : '災害時';
+            }
         },
 
         _syncFilterChips: function () {
