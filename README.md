@@ -42,9 +42,19 @@ Google スプレッドシートをデータソースに、**イラスト地図**
 - **モデレーション**: `posts.isVisible` を `FALSE` にするとブラウザ側で非表示になります（行削除も可）。  
 - **運営スポット**: `venue_spots` に `spotId,name,lat,lng,type` で会場ピンを登録してから、運営ロールが LINE で番号選択します。
 
+### 災害時モード（指定緊急避難場所 / 指定避難所）
+
+左上の **「災害時」** トグルで、店舗・LIVE・祭ピンを隠し、下田市指定の緊急避難場所・避難所のみを表示します。
+
+- 手順・シート列・復元タグ: [web/DISASTER_MODE.md](web/DISASTER_MODE.md)
+- GAS: `web/gas-setup-disaster-sheets.js` の `setupDisasterSheets()`
+- シート未作成時は `web/public/data/disaster_evac.json` にフォールバック
+- 確認 URL: `/?disaster=1`
+
 ### 祭イベントスケジュールピン
 
 `event_schedule` シートに 1 行 1 イベントを入れると、**開始の 30 分前から終了まで**マップにピンが自動で現れます。
+
 
 | 列 | 内容 |
 |----|------|

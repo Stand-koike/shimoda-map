@@ -76,18 +76,23 @@
         EVENT_SCHEDULE_POLL_INTERVAL: 60000,
         EVENT_SCHEDULE_TICK_MS:       60000,
 
+        EVAC_PLACES_SHEET:   secrets.EVAC_PLACES_SHEET   || 'evacuation_places',
+        EVAC_SHELTERS_SHEET: secrets.EVAC_SHELTERS_SHEET || 'evacuation_shelters',
+
         TRANSLATIONS: {
             ja: {
                 all: 'すべて', go: 'Google Mapsで見る', coupon: 'クーポンを使う',
                 loading: '読み込み中...', noData: 'データなし', filter: '絞り込み',
                 layers: 'レイヤー', newsListTitle: 'お知らせ一覧', updating: 'データ更新中...',
-                hours: '営業時間', tags: 'タグ', allTags: 'すべてのタグ', map: 'マップ'
+                hours: '営業時間', tags: 'タグ', allTags: 'すべてのタグ', map: 'マップ',
+                disaster: '災害時', disasterOn: '災害ON'
             },
             en: {
                 all: 'All', go: 'Open in Google Maps', coupon: 'Use Coupon',
                 loading: 'Loading...', noData: 'No Data', filter: 'Filter',
                 layers: 'Layers', newsListTitle: 'News List', updating: 'Updating...',
-                hours: 'Hours', tags: 'Tags', allTags: 'All Tags', map: 'Map'
+                hours: 'Hours', tags: 'Tags', allTags: 'All Tags', map: 'Map',
+                disaster: 'Disaster', disasterOn: 'Disaster ON'
             }
         }
     };
