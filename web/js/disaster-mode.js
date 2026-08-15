@@ -283,13 +283,35 @@
                 var placeRows = pair[0];
                 var shelterRows = pair[1];
                 if (!placeRows && !shelterRows) return false;
-                if (placeRows) self.places = self._parsePlaceRows(placeRows);
-                if (shelterRows) self.shelters = self._parseShelterRows(shelterRows);
+                if (placeRows && self._isEvacPlacesTable(placeRows)) {
+                    self.places = self._parsePlaceRows(placeRows);
+                }
+                if (shelterRows && self._isEvacSheltersTable(shelterRows)) {
+                    self.shelters = self._parseShelterRows(shelterRows);
+                }
                 return self.places.length > 0 || self.shelters.length > 0;
             }).catch(function (err) {
                 console.warn('[DisasterMode] sheets 取得失敗', err);
                 return false;
             });
+        },
+
+        _colLabel: function (table, i) {
+            var cols = table && table.cols;
+            if (!cols || !cols[i]) return '';
+            return String(cols[i].label || cols[i].id || '').trim().toLowerCase();
+        },
+
+        _isEvacPlacesTable: function (table) {
+            // id, no, name, lat, lng ...（店舗マスタの _reserved/name と区別）
+            var a = this._colLabel(table, 0);
+            var c = this._colLabel(table, 2);
+            var d = this._colLabel(table, 3);
+            return a === 'id' && c === 'name' && (d === 'lat' || d === 'latitude');
+        },
+
+        _isEvacSheltersTable: function (table) {
+            return this._isEvacPlacesTable(table);
         },
 
         _gvizSheet: function (sheetName) {
