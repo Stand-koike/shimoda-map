@@ -201,6 +201,20 @@
             border-color: transparent; color: white;
             box-shadow: 0 4px 16px rgba(0,188,212,0.35);
         }
+        /* モバイル底タブ: 上記グラデが後勝ちしないよう再指定 */
+        @media (max-width: 767px) {
+            .ctrl-btn.primary,
+            .ctrl-btn.layer {
+                background: transparent !important;
+                box-shadow: none !important;
+                border: none !important;
+                color: var(--color-text-sub);
+            }
+            .ctrl-btn.primary.tab-active,
+            .ctrl-btn.layer.tab-active {
+                color: var(--color-primary);
+            }
+        }
         .ctrl-btn:active { transform: scale(0.95); }
 
         /* ホームタブ: PC では非表示 */
@@ -1566,7 +1580,7 @@
             top: 12px;
             left: 50%;
             transform: translateX(-50%) translateY(-120%);
-            z-index: 10050;
+            z-index: 45;
             width: min(560px, calc(100vw - 24px));
             background: linear-gradient(135deg, #3E2723 0%, #5D4037 45%, #4E342E 100%);
             color: #FFF8E1;
@@ -1576,6 +1590,7 @@
             opacity: 0;
             pointer-events: none;
             transition: transform 0.35s ease, opacity 0.35s ease;
+            box-sizing: border-box;
         }
         .disaster-banner.open {
             transform: translateX(-50%) translateY(0);
@@ -1736,16 +1751,86 @@
             font-size: 11px; color: #90A4AE; margin: 10px 0 14px;
         }
         @media (max-width: 767px) {
+            /* PC用ピル見た目をボトムタブに合わせる（赤ベタ塗りで崩れるのを防ぐ） */
+            .ctrl-btn.disaster-toggle,
+            .ctrl-btn.disaster-toggle.active,
+            .ctrl-btn.disaster-toggle[aria-pressed="true"] {
+                background: transparent !important;
+                border: none !important;
+                box-shadow: none !important;
+                color: var(--color-text-sub);
+                border-radius: 0;
+            }
+            .ctrl-btn.disaster-toggle.active,
+            .ctrl-btn.disaster-toggle[aria-pressed="true"] {
+                color: #C62828;
+            }
+            .ctrl-btn.disaster-toggle.active::after,
+            .ctrl-btn.disaster-toggle[aria-pressed="true"]::after {
+                content: '';
+                position: absolute;
+                top: 0; left: 20%; right: 20%;
+                height: 2.5px;
+                background: #C62828;
+                border-radius: 0 0 2px 2px;
+            }
+
+            /* 災害時は使わない絞り込み／レイヤーを隠し、タブを3つに */
+            body.disaster-mode .disaster-aux-tab {
+                display: none !important;
+            }
+
+            /* バナーは画面上部（カード・底ナビと衝突させない） */
             .disaster-banner {
-                top: auto;
-                bottom: calc(148px + env(safe-area-inset-bottom, 0px));
-                transform: translateX(-50%) translateY(120%);
+                top: max(8px, env(safe-area-inset-top, 0px));
+                bottom: auto;
+                width: calc(100vw - 16px);
+                max-width: none;
+                max-height: min(38vh, 280px);
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                padding: 8px 10px 10px;
+                border-radius: 12px;
+                z-index: 50;
+                transform: translateX(-50%) translateY(calc(-100% - 16px));
             }
             .disaster-banner.open {
                 transform: translateX(-50%) translateY(0);
             }
-            body.disaster-mode .controls-container {
-                top: 12px;
+            .disaster-banner-main {
+                margin-bottom: 6px;
+                gap: 4px 8px;
+            }
+            .disaster-banner-main strong { font-size: 13px; }
+            .disaster-banner-sub { font-size: 11px; }
+            .disaster-chip {
+                padding: 4px 8px;
+                font-size: 11px;
+            }
+            .disaster-exit-btn {
+                margin-top: 6px;
+                padding: 7px 10px;
+                font-size: 12px;
+                border-radius: 8px;
+            }
+
+            /* カードシートを少し低くしてバナー分の余白を確保 */
+            body.disaster-mode .card-panel-mobile-inner {
+                max-height: min(40vh, 300px);
+            }
+            body.disaster-mode.cards-sheet-collapsed .card-panel-mobile-inner {
+                max-height: 42px;
+            }
+
+            .disaster-card {
+                flex: 0 0 200px;
+                min-width: 200px;
+                padding: 10px 12px !important;
+            }
+            .disaster-detail-body {
+                padding: 18px 16px 16px;
+                max-height: min(70vh, 520px);
+                overflow-y: auto;
             }
         }
     </style>
@@ -4934,9 +5019,12 @@ const App = {
         if (homeText) homeText.innerText = t('map');
         const disasterText = document.getElementById('disaster-btn-text');
         if (disasterText) {
-            disasterText.innerText = (typeof DisasterMode !== 'undefined' && DisasterMode.isActive())
-                ? t('disasterOn')
-                : t('disaster');
+            const narrow = window.innerWidth < 768;
+            if (typeof DisasterMode !== 'undefined' && DisasterMode.isActive()) {
+                disasterText.innerText = t('disasterOn');
+            } else {
+                disasterText.innerText = narrow ? '災害' : t('disaster');
+            }
         }
 
         UIModule.generateFilters(State.allSpots);
