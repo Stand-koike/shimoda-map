@@ -37,6 +37,51 @@
         { label: '20m以上', color: '#800080' }
     ];
 
+    var HIDDEN_LAYER_IDS = ['spots', 'events', 'mikoshi', 'routes', 'areas'];
+    var ILLUSTRATION_LAYER_KEYS = ['day', 'sunset', 'night'];
+    var TYPE_FILTER_OPTIONS = [
+        { id: 'all', label: 'すべて' },
+        { id: 'place', label: '緊急避難場所' },
+        { id: 'shelter', label: '避難所' },
+        { id: 'aed', label: 'AED' }
+    ];
+    var MARKER_ICON_BY_KIND = {
+        aed: '<i class="fas fa-heart-pulse"></i>',
+        place: '<i class="fas fa-person-running"></i>',
+        shelter: '<i class="fas fa-house-chimney"></i>'
+    };
+    var CARD_KIND_BADGE_STYLE = {
+        'is-place': 'background:#C62828;color:#fff',
+        'is-shelter': 'background:#1565C0;color:#fff',
+        'is-aed': 'background:#00897B;color:#fff'
+    };
+
+    function escapeText(s) {
+        return String(s == null ? '' : s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function isHiddenCell(value) {
+        return value === false || value === 'FALSE' || value === 'false';
+    }
+
+    function hazardColorFor(key) {
+        var meta = HAZARD_META.find(function (m) { return m.key === key; });
+        return (meta && meta.color) || '#546E7A';
+    }
+
+    function parseHazardsRaw(raw) {
+        return String(raw || '').split(/[,、/|]/).map(function (s) { return s.trim(); }).filter(Boolean);
+    }
+
+    function buildHazardChipHtml(key) {
+        return '<span class="disaster-hazard-chip" style="background:' + hazardColorFor(key) + '">' +
+            escapeText(key) + '</span>';
+    }
+
     var DisasterMode = {
         _deps: null,
         active: false,
@@ -99,7 +144,7 @@
                 this._savedLayers[id] = !!LayerManager.getDefs()[id].visible;
             }, this);
 
-            ['spots', 'events', 'mikoshi', 'routes', 'areas'].forEach(function (id) {
+            HIDDEN_LAYER_IDS.forEach(function (id) {
                 var def = LayerManager.getDefs()[id];
                 if (def && def.visible) LayerManager.toggle(id);
             });
@@ -113,9 +158,7 @@
             this._syncTsunamiUI();
             var loading = document.getElementById('loading');
             if (loading) loading.style.display = 'none';
-            try {
-                if (typeof gtag === 'function') gtag('event', 'disaster_mode', { action: 'enter' });
-            } catch (e) { /* ignore */ }
+            this._trackEvent('enter');
         },
 
         exit: function () {
@@ -144,8 +187,16 @@
             this._showBanner(false);
             this._syncToggleUI();
             deps.App._refreshUI();
+            this._trackEvent('exit');
+        },
+
+        _getLang: function () {
+            return (this._deps.State && this._deps.State.language) || 'ja';
+        },
+
+        _trackEvent: function (action) {
             try {
-                if (typeof gtag === 'function') gtag('event', 'disaster_mode', { action: 'exit' });
+                if (typeof gtag === 'function') gtag('event', 'disaster_mode', { action: action });
             } catch (e) { /* ignore */ }
         },
 
@@ -242,8 +293,30 @@
                 : (fac.kind === 'place' ? 'is-place' : 'is-shelter');
         },
 
+        _getMarkerIconHtml: function (fac) {
+            return MARKER_ICON_BY_KIND[fac.kind] || MARKER_ICON_BY_KIND.shelter;
+        },
+
+        _fillHazardChips: function (container, hazards) {
+            container.innerHTML = '';
+            if (!hazards || !hazards.length) {
+                container.style.display = 'none';
+                return;
+            }
+            hazards.forEach(function (h) {
+                var chip = document.createElement('span');
+                chip.className = 'disaster-hazard-chip';
+                chip.style.background = hazardColorFor(h);
+                chip.textContent = h;
+                container.appendChild(chip);
+            });
+            container.style.display = 'flex';
+        },
+
         _buildCardKindHtml: function (fac, lang) {
-            return '<span class="disaster-card-kind ' + this._getKindClass(fac) + '">' +
+            var kindClass = this._getKindClass(fac);
+            var style = CARD_KIND_BADGE_STYLE[kindClass] || CARD_KIND_BADGE_STYLE['is-shelter'];
+            return '<span class="disaster-card-kind ' + kindClass + '" style="' + style + '">' +
                 escapeText(this._getKindLabel(fac, lang, true)) +
                 '</span>';
         },
@@ -253,19 +326,14 @@
                 return '';
             }
             return '<div class="disaster-card-hazards">' +
-                fac.hazards.map(function (h) {
-                    var meta = HAZARD_META.find(function (m) { return m.key === h; });
-                    var bg = (meta && meta.color) || '#546E7A';
-                    return '<span class="disaster-hazard-chip" style="background:' + bg + '">' +
-                        escapeText(h) + '</span>';
-                }).join('') +
+                fac.hazards.map(buildHazardChipHtml).join('') +
                 '</div>';
         },
 
         openDetail: function (fac) {
             var overlay = document.getElementById('disaster-detail-overlay');
             if (!overlay || !fac) return;
-            var lang = (this._deps.State && this._deps.State.language) || 'ja';
+            var lang = this._getLang();
             var isPlace = fac.kind === 'place';
             var isAed = fac.kind === 'aed';
 
@@ -294,18 +362,10 @@
             }
 
             var hazWrap = document.getElementById('disaster-detail-hazards');
-            hazWrap.innerHTML = '';
             if (isPlace && fac.hazards && fac.hazards.length) {
-                fac.hazards.forEach(function (h) {
-                    var meta = HAZARD_META.find(function (m) { return m.key === h; });
-                    var chip = document.createElement('span');
-                    chip.className = 'disaster-hazard-chip';
-                    chip.style.background = (meta && meta.color) || '#546E7A';
-                    chip.textContent = h;
-                    hazWrap.appendChild(chip);
-                });
-                hazWrap.style.display = 'flex';
+                this._fillHazardChips(hazWrap, fac.hazards);
             } else {
+                hazWrap.innerHTML = '';
                 hazWrap.style.display = 'none';
             }
 
@@ -497,10 +557,9 @@
                 var lat = Number(self._cell(row, 3));
                 var lng = Number(self._cell(row, 4));
                 var hidden = self._cell(row, 10);
-                if (hidden === false || hidden === 'FALSE' || hidden === 'false') return;
+                if (isHiddenCell(hidden)) return;
                 if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
-                var hazardsRaw = String(self._cell(row, 7) || '');
-                var hazards = hazardsRaw.split(/[,、/|]/).map(function (s) { return s.trim(); }).filter(Boolean);
+                var hazards = parseHazardsRaw(self._cell(row, 7));
                 out.push({
                     id: id || ('ep-' + out.length),
                     no: self._cell(row, 1),
@@ -528,7 +587,7 @@
                 var lat = Number(self._cell(row, 3));
                 var lng = Number(self._cell(row, 4));
                 var hidden = self._cell(row, 8);
-                if (hidden === false || hidden === 'FALSE' || hidden === 'false') return;
+                if (isHiddenCell(hidden)) return;
                 if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
                 out.push({
                     id: id || ('es-' + out.length),
@@ -556,7 +615,7 @@
                 var lat = Number(self._cell(row, 3));
                 var lng = Number(self._cell(row, 4));
                 var hidden = self._cell(row, 9);
-                if (hidden === false || hidden === 'FALSE' || hidden === 'false') return;
+                if (isHiddenCell(hidden)) return;
                 if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
                 out.push({
                     id: id || ('aed-' + out.length),
@@ -763,7 +822,7 @@
         _hideIllustrationLayers: function () {
             var map = this._deps.MapModule._map;
             if (!map) return;
-            ['day', 'sunset', 'night'].forEach(function (key) {
+            ILLUSTRATION_LAYER_KEYS.forEach(function (key) {
                 var lid = 'illustration-map-layer-' + key;
                 if (!map.getLayer(lid)) return;
                 try {
@@ -813,7 +872,7 @@
             if (map.getLayer('disaster-tsunami-layer')) {
                 try { map.setLayoutProperty('disaster-tsunami-layer', 'visibility', 'none'); } catch (e) { /* ignore */ }
             }
-            ['day', 'sunset', 'night'].forEach(function (key) {
+            ILLUSTRATION_LAYER_KEYS.forEach(function (key) {
                 var lid = 'illustration-map-layer-' + key;
                 if (!map.getLayer(lid)) return;
                 try { map.setLayoutProperty(lid, 'visibility', 'visible'); } catch (e) { /* ignore */ }
@@ -978,20 +1037,14 @@
 
             list.forEach(function (fac) {
                 if (!Number.isFinite(fac.lat) || !Number.isFinite(fac.lng)) return;
-                var kindClass = fac.kind === 'aed' ? ' is-aed'
-                    : (fac.kind === 'place' ? ' is-place' : ' is-shelter');
-                var iconHtml = fac.kind === 'aed'
-                    ? '<i class="fas fa-heart-pulse"></i>'
-                    : (fac.kind === 'place'
-                        ? '<i class="fas fa-person-running"></i>'
-                        : '<i class="fas fa-house-chimney"></i>');
+                var kindClass = ' ' + self._getKindClass(fac);
                 var el = document.createElement('div');
                 el.className = 'disaster-marker' + kindClass +
                     (self._selectedId === fac.id ? ' active' : '');
                 el.title = fac.name;
                 el.innerHTML =
                     '<div class="disaster-marker-inner">' +
-                    '<span class="disaster-marker-icon">' + iconHtml + '</span></div>';
+                    '<span class="disaster-marker-icon">' + self._getMarkerIconHtml(fac) + '</span></div>';
                 el.addEventListener('click', function (e) {
                     e.stopPropagation();
                     self.selectFacility(fac, { openDetail: true });
@@ -1017,7 +1070,7 @@
             var container = document.getElementById('slide-panel');
             if (!container) return;
             container.innerHTML = '';
-            var lang = (this._deps.State && this._deps.State.language) || 'ja';
+            var lang = this._getLang();
 
             if (!list.length) {
                 container.innerHTML = '<div class="disaster-empty">' +
@@ -1030,9 +1083,7 @@
             var user = this._getUserCoords();
             list.forEach(function (fac) {
                 var card = document.createElement('div');
-                var cardKindClass = fac.kind === 'aed' ? ' is-aed'
-                    : (fac.kind === 'place' ? ' is-place' : ' is-shelter');
-                card.className = 'slide-card disaster-card' + cardKindClass +
+                card.className = 'slide-card disaster-card ' + self._getKindClass(fac) +
                     (self._selectedId === fac.id ? ' active' : '');
                 card.id = 'card-' + fac.id;
                 card.onclick = function () { self.selectFacility(fac); };
@@ -1045,13 +1096,13 @@
                 }
 
                 card.innerHTML =
+                    self._buildCardKindHtml(fac, lang) +
                     '<div class="disaster-card-head">' +
                     '<div class="disaster-card-title">' + escapeText(fac.name || '') + '</div>' +
                     (distText
                         ? '<div class="disaster-card-dist">' + escapeText(distText) + '</div>'
                         : '') +
                     '</div>' +
-                    self._buildCardKindHtml(fac, lang) +
                     self._buildCardHazardsHtml(fac);
                 container.appendChild(card);
             });
@@ -1079,30 +1130,40 @@
 
         _injectUI: function () {
             if (document.getElementById('tab-disaster')) return;
+            this._injectDisasterToggleButton();
+            this._injectDisasterBanner();
+            this._injectTsunamiMapControls();
+            this._injectTsunamiInfoModal();
+            this._injectFilterChips();
+            this._injectDetailModal();
+            this._syncFilterChips();
+        },
 
+        _injectDisasterToggleButton: function () {
             var controls = document.getElementById('controls-container');
-            if (controls) {
-                var btn = document.createElement('button');
-                btn.className = 'ctrl-btn disaster-toggle';
-                btn.id = 'tab-disaster';
-                btn.type = 'button';
-                btn.setAttribute('aria-pressed', 'false');
-                btn.innerHTML = '<i class="fas fa-house-flood-water"></i> <span id="disaster-btn-text">' +
-                    (window.innerWidth < 768 ? '災害' : '災害時') + '</span>';
-                btn.onclick = function () { DisasterMode.toggle(); };
-                // 言語ボタンの前へ
-                var langBtn = document.getElementById('tab-lang');
-                if (langBtn) controls.insertBefore(btn, langBtn);
-                else controls.appendChild(btn);
+            if (!controls) return;
 
-                // モバイルで災害時に隠す補助タブ（:has 非依存）
-                ['tab-filter', 'tab-layer'].forEach(function (id) {
-                    var el = document.getElementById(id);
-                    var wrap = el && el.closest ? el.closest('.ctrl-panel-wrapper') : null;
-                    if (wrap) wrap.classList.add('disaster-aux-tab');
-                });
-            }
+            var btn = document.createElement('button');
+            btn.className = 'ctrl-btn disaster-toggle';
+            btn.id = 'tab-disaster';
+            btn.type = 'button';
+            btn.setAttribute('aria-pressed', 'false');
+            btn.innerHTML = '<i class="fas fa-house-flood-water"></i> <span id="disaster-btn-text">' +
+                (window.innerWidth < 768 ? '災害' : '災害時') + '</span>';
+            btn.onclick = function () { DisasterMode.toggle(); };
 
+            var langBtn = document.getElementById('tab-lang');
+            if (langBtn) controls.insertBefore(btn, langBtn);
+            else controls.appendChild(btn);
+
+            ['tab-filter', 'tab-layer'].forEach(function (id) {
+                var el = document.getElementById(id);
+                var wrap = el && el.closest ? el.closest('.ctrl-panel-wrapper') : null;
+                if (wrap) wrap.classList.add('disaster-aux-tab');
+            });
+        },
+
+        _injectDisasterBanner: function () {
             var banner = document.createElement('div');
             banner.id = 'disaster-banner';
             banner.className = 'disaster-banner';
@@ -1116,75 +1177,76 @@
                 '<div class="disaster-filter-row" id="disaster-hazard-filters"></div>' +
                 '</div>';
             document.body.appendChild(banner);
+        },
 
+        _injectTsunamiMapControls: function () {
             var mapControls = document.querySelector('.map-controls');
-            if (mapControls && !document.getElementById('disaster-tsunami-toggle')) {
-                var infoBtn = document.createElement('button');
-                infoBtn.type = 'button';
-                infoBtn.id = 'disaster-tsunami-info-btn';
-                infoBtn.className = 'btn-control btn-tsunami-info disaster-map-btn';
-                infoBtn.title = '津波浸水域の凡例・出典';
-                infoBtn.setAttribute('aria-label', '津波浸水域の凡例・出典');
-                infoBtn.innerHTML = '<i class="fas fa-circle-info"></i>';
-                infoBtn.onclick = function () { DisasterMode.openTsunamiInfo(); };
+            if (!mapControls || document.getElementById('disaster-tsunami-toggle')) return;
 
-                var tsunamiBtn = document.createElement('button');
-                tsunamiBtn.type = 'button';
-                tsunamiBtn.id = 'disaster-tsunami-toggle';
-                tsunamiBtn.className = 'btn-control btn-tsunami disaster-map-btn';
-                tsunamiBtn.setAttribute('aria-pressed', 'false');
-                tsunamiBtn.title = '津波浸水域を表示';
-                tsunamiBtn.setAttribute('aria-label', '津波浸水域を表示');
-                tsunamiBtn.innerHTML = '<i class="fas fa-water"></i>';
-                tsunamiBtn.onclick = function () { DisasterMode.toggleTsunamiLayer(); };
+            var infoBtn = document.createElement('button');
+            infoBtn.type = 'button';
+            infoBtn.id = 'disaster-tsunami-info-btn';
+            infoBtn.className = 'btn-control btn-tsunami-info disaster-map-btn';
+            infoBtn.title = '津波浸水域の凡例・出典';
+            infoBtn.setAttribute('aria-label', '津波浸水域の凡例・出典');
+            infoBtn.innerHTML = '<i class="fas fa-circle-info"></i>';
+            infoBtn.onclick = function () { DisasterMode.openTsunamiInfo(); };
 
-                mapControls.insertBefore(infoBtn, mapControls.firstChild);
-                mapControls.insertBefore(tsunamiBtn, mapControls.firstChild);
-            }
+            var tsunamiBtn = document.createElement('button');
+            tsunamiBtn.type = 'button';
+            tsunamiBtn.id = 'disaster-tsunami-toggle';
+            tsunamiBtn.className = 'btn-control btn-tsunami disaster-map-btn';
+            tsunamiBtn.setAttribute('aria-pressed', 'false');
+            tsunamiBtn.title = '津波浸水域を表示';
+            tsunamiBtn.setAttribute('aria-label', '津波浸水域を表示');
+            tsunamiBtn.innerHTML = '<i class="fas fa-water"></i>';
+            tsunamiBtn.onclick = function () { DisasterMode.toggleTsunamiLayer(); };
 
-            if (!document.getElementById('disaster-tsunami-info-overlay')) {
-                var infoOverlay = document.createElement('div');
-                infoOverlay.className = 'modal-overlay';
-                infoOverlay.id = 'disaster-tsunami-info-overlay';
-                infoOverlay.onclick = function (e) { DisasterMode.closeTsunamiInfo(e); };
-                infoOverlay.innerHTML =
-                    '<div class="modal-content disaster-tsunami-info-card" onclick="event.stopPropagation()">' +
-                    '<button class="modal-close-btn" type="button" id="disaster-tsunami-info-close">' +
-                    '<i class="fas fa-times"></i></button>' +
-                    '<h3>津波浸水域</h3>' +
-                    '<p class="disaster-tsunami-note">' +
-                    '静岡県津波浸水想定（平成27年8月公表）。下田市ハザードマップと同系統の県公表想定です。' +
-                    '市配布のハザードマップは基準水位（せり上がり込み）表示のため、浸水深の色分けは一致しない場合があります。' +
-                    '</p>' +
-                    '<div class="disaster-tsunami-legend" id="disaster-tsunami-legend"></div>' +
-                    '<p class="disaster-tsunami-source">' +
-                    '<a href="https://www.city.shimoda.shizuoka.jp/category/010500bousai_tishiki/120138.html" ' +
-                    'target="_blank" rel="noopener">下田市津波ハザードマップ</a>' +
-                    ' · <a href="https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html" ' +
-                    'target="_blank" rel="noopener">出典：ハザードマップポータルサイト</a>' +
-                    '</p></div>';
-                document.body.appendChild(infoOverlay);
-                document.getElementById('disaster-tsunami-info-close').onclick = function () {
-                    DisasterMode.closeTsunamiInfo(null, true);
-                };
-            }
+            mapControls.insertBefore(infoBtn, mapControls.firstChild);
+            mapControls.insertBefore(tsunamiBtn, mapControls.firstChild);
+        },
+
+        _injectTsunamiInfoModal: function () {
+            if (document.getElementById('disaster-tsunami-info-overlay')) return;
+
+            var infoOverlay = document.createElement('div');
+            infoOverlay.className = 'modal-overlay';
+            infoOverlay.id = 'disaster-tsunami-info-overlay';
+            infoOverlay.onclick = function (e) { DisasterMode.closeTsunamiInfo(e); };
+            infoOverlay.innerHTML =
+                '<div class="modal-content disaster-tsunami-info-card" onclick="event.stopPropagation()">' +
+                '<button class="modal-close-btn" type="button" id="disaster-tsunami-info-close">' +
+                '<i class="fas fa-times"></i></button>' +
+                '<h3>津波浸水域</h3>' +
+                '<p class="disaster-tsunami-note">' +
+                '静岡県津波浸水想定（平成27年8月公表）。下田市ハザードマップと同系統の県公表想定です。' +
+                '市配布のハザードマップは基準水位（せり上がり込み）表示のため、浸水深の色分けは一致しない場合があります。' +
+                '</p>' +
+                '<div class="disaster-tsunami-legend" id="disaster-tsunami-legend"></div>' +
+                '<p class="disaster-tsunami-source">' +
+                '<a href="https://www.city.shimoda.shizuoka.jp/category/010500bousai_tishiki/120138.html" ' +
+                'target="_blank" rel="noopener">下田市津波ハザードマップ</a>' +
+                ' · <a href="https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html" ' +
+                'target="_blank" rel="noopener">出典：ハザードマップポータルサイト</a>' +
+                '</p></div>';
+            document.body.appendChild(infoOverlay);
+            document.getElementById('disaster-tsunami-info-close').onclick = function () {
+                DisasterMode.closeTsunamiInfo(null, true);
+            };
 
             var legendEl = document.getElementById('disaster-tsunami-legend');
-            if (legendEl && !legendEl.innerHTML) {
+            if (legendEl) {
                 legendEl.innerHTML = TSUNAMI_LEGEND.map(function (item) {
                     return '<span class="disaster-tsunami-legend-item">' +
                         '<span class="disaster-tsunami-swatch" style="background:' + item.color + '"></span>' +
                         escapeText(item.label) + '</span>';
                 }).join('');
             }
+        },
 
+        _injectFilterChips: function () {
             var typeRow = document.getElementById('disaster-type-filters');
-            [
-                { id: 'all', label: 'すべて' },
-                { id: 'place', label: '緊急避難場所' },
-                { id: 'shelter', label: '避難所' },
-                { id: 'aed', label: 'AED' }
-            ].forEach(function (t) {
+            TYPE_FILTER_OPTIONS.forEach(function (t) {
                 var b = document.createElement('button');
                 b.type = 'button';
                 b.className = 'disaster-chip';
@@ -1212,7 +1274,9 @@
                 b.onclick = function () { DisasterMode.setHazardFilter(h.key); };
                 hazRow.appendChild(b);
             });
+        },
 
+        _injectDetailModal: function () {
             var detail = document.createElement('div');
             detail.className = 'modal-overlay';
             detail.id = 'disaster-detail-overlay';
@@ -1238,8 +1302,6 @@
             document.getElementById('disaster-detail-close').onclick = function () {
                 DisasterMode.closeDetail(null, true);
             };
-
-            this._syncFilterChips();
         },
 
         _showBanner: function (show) {
@@ -1302,14 +1364,6 @@
             }
         }
     };
-
-    function escapeText(s) {
-        return String(s == null ? '' : s)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
-    }
 
     global.DisasterMode = DisasterMode;
 })(typeof window !== 'undefined' ? window : this);
