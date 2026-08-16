@@ -218,6 +218,36 @@
             }
         },
 
+        _getKindLabel: function (fac, lang, short) {
+            lang = lang || 'ja';
+            var isPlace = fac.kind === 'place';
+            var isAed = fac.kind === 'aed';
+            if (isAed) {
+                return short || lang !== 'ja'
+                    ? 'AED'
+                    : 'AED設置場所';
+            }
+            if (short) {
+                return isPlace
+                    ? (lang === 'ja' ? '緊急避難場所' : 'Emergency site')
+                    : (lang === 'ja' ? '避難所' : 'Shelter');
+            }
+            return isPlace
+                ? (lang === 'ja' ? '指定緊急避難場所' : 'Emergency Evacuation Site')
+                : (lang === 'ja' ? '指定避難所' : 'Evacuation Shelter');
+        },
+
+        _getKindClass: function (fac) {
+            return fac.kind === 'aed' ? 'is-aed'
+                : (fac.kind === 'place' ? 'is-place' : 'is-shelter');
+        },
+
+        _buildCardKindHtml: function (fac, lang) {
+            return '<span class="disaster-card-kind ' + this._getKindClass(fac) + '">' +
+                escapeText(this._getKindLabel(fac, lang, true)) +
+                '</span>';
+        },
+
         _buildCardHazardsHtml: function (fac) {
             if (fac.kind !== 'place' || !fac.hazards || !fac.hazards.length) {
                 return '';
@@ -238,15 +268,11 @@
             var lang = (this._deps.State && this._deps.State.language) || 'ja';
             var isPlace = fac.kind === 'place';
             var isAed = fac.kind === 'aed';
-            var kindLabel = isAed
-                ? (lang === 'ja' ? 'AED設置場所' : 'AED')
-                : isPlace
-                    ? (lang === 'ja' ? '指定緊急避難場所' : 'Emergency Evacuation Site')
-                    : (lang === 'ja' ? '指定避難所' : 'Evacuation Shelter');
 
-            document.getElementById('disaster-detail-kind').textContent = kindLabel;
+            document.getElementById('disaster-detail-kind').textContent =
+                this._getKindLabel(fac, lang, false);
             document.getElementById('disaster-detail-kind').className =
-                'disaster-detail-kind ' + (isAed ? 'is-aed' : (isPlace ? 'is-place' : 'is-shelter'));
+                'disaster-detail-kind ' + this._getKindClass(fac);
             document.getElementById('disaster-detail-title').textContent = fac.name || '';
             document.getElementById('disaster-detail-address').textContent = fac.address || '—';
 
@@ -1025,6 +1051,7 @@
                         ? '<div class="disaster-card-dist">' + escapeText(distText) + '</div>'
                         : '') +
                     '</div>' +
+                    self._buildCardKindHtml(fac, lang) +
                     self._buildCardHazardsHtml(fac);
                 container.appendChild(card);
             });
