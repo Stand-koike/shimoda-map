@@ -91,6 +91,7 @@
         /** 災害時モード用シート（GAS setupDisasterSheets で作成。ローカル JSON フォールバックあり） */
         EVAC_PLACES_SHEET:   secrets.EVAC_PLACES_SHEET   || 'evacuation_places',
         EVAC_SHELTERS_SHEET: secrets.EVAC_SHELTERS_SHEET || 'evacuation_shelters',
+        AED_SHEET:           secrets.AED_SHEET           || 'aed_locations',
 
         TRANSLATIONS: {
             ja: {

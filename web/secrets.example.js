@@ -15,5 +15,7 @@ window.__SHIMODA_MAP_SECRETS__ = {
     /** 指定緊急避難場所シート名（既定: evacuation_places）。省略可。 */
     EVAC_PLACES_SHEET: 'evacuation_places',
     /** 指定避難所シート名（既定: evacuation_shelters）。省略可。 */
-    EVAC_SHELTERS_SHEET: 'evacuation_shelters'
+    EVAC_SHELTERS_SHEET: 'evacuation_shelters',
+    /** AED設置箇所シート名（既定: aed_locations）。省略可。 */
+    AED_SHEET: 'aed_locations'
 };
