@@ -1646,6 +1646,47 @@
             border-color: transparent;
             color: #fff;
         }
+        .disaster-chip.tsunami-layer.active {
+            background: #00838F;
+            border-color: #00838F;
+            color: #fff;
+        }
+        .disaster-layer-row { margin-top: 2px; }
+        .disaster-tsunami-meta {
+            margin-top: 8px;
+            padding-top: 8px;
+            border-top: 1px solid rgba(255, 248, 225, 0.2);
+            font-size: 11px;
+            line-height: 1.45;
+            opacity: 0.92;
+        }
+        .disaster-tsunami-meta[hidden] { display: none !important; }
+        .disaster-tsunami-note { margin: 0 0 6px; }
+        .disaster-tsunami-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px 8px;
+            margin-bottom: 6px;
+        }
+        .disaster-tsunami-legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 10px;
+            white-space: nowrap;
+        }
+        .disaster-tsunami-swatch {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            border: 1px solid rgba(0, 0, 0, 0.15);
+            flex-shrink: 0;
+        }
+        .disaster-tsunami-source { margin: 0; }
+        .disaster-tsunami-source a {
+            color: #FFE082;
+            text-decoration: underline;
+        }
         body.disaster-mode #news-ticker-wrapper { display: none !important; }
         body.disaster-mode #tab-filter,
         body.disaster-mode #tab-layer {

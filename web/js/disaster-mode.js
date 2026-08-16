@@ -23,6 +23,20 @@
 
     var DISASTER_BOUNDS = [[138.86, 34.63], [138.99, 34.77]];
 
+    /** 静岡県津波浸水想定（GSI ハザードマップタイル・下田市と同系統の県公表想定） */
+    var TSUNAMI_TILE_URL =
+        'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_pref_data/22/{z}/{x}/{y}.png';
+    var TSUNAMI_LEGEND = [
+        { label: '0.3m未満', color: '#FFFFB3' },
+        { label: '0.3〜0.5m', color: '#FFFF00' },
+        { label: '0.5〜1m', color: '#BFFF00' },
+        { label: '1〜3m', color: '#00FF00' },
+        { label: '3〜5m', color: '#00BFFF' },
+        { label: '5〜10m', color: '#0000FF' },
+        { label: '10〜20m', color: '#FF00FF' },
+        { label: '20m以上', color: '#800080' }
+    ];
+
     var DisasterMode = {
         _deps: null,
         active: false,
@@ -32,6 +46,7 @@
         _markers: [],
         _hazardFilter: null,
         _typeFilter: 'all',
+        _tsunamiLayerOn: false,
         _savedLayers: null,
         _savedCamera: null,
         _illustrationPaused: false,
@@ -90,10 +105,12 @@
             });
 
             this._pauseIllustrationAndShowBase();
+            this._ensureTsunamiOverlay();
             this._expandMapForDisaster();
             this._renderAll();
             this._syncToggleUI();
             this._showBanner(true);
+            this._syncTsunamiUI();
             var loading = document.getElementById('loading');
             if (loading) loading.style.display = 'none';
             try {
@@ -106,6 +123,8 @@
             var deps = this._deps;
             this.active = false;
             document.body.classList.remove('disaster-mode');
+            this._setTsunamiLayerVisible(false);
+            this._tsunamiLayerOn = false;
             this._clearMarkers();
             this._selectedId = null;
             this._restoreMapFromDisaster();
@@ -149,8 +168,18 @@
 
         setHazardFilter: function (key) {
             this._hazardFilter = key || null;
+            if (this._hazardFilter === '津波') {
+                this._setTsunamiLayerVisible(true);
+            }
             this._renderAll();
             this._syncFilterChips();
+            this._syncTsunamiUI();
+        },
+
+        toggleTsunamiLayer: function () {
+            if (!this.active) return;
+            this._setTsunamiLayerVisible(!this._tsunamiLayerOn);
+            this._syncTsunamiUI();
         },
 
         selectFacility: function (fac) {
@@ -601,9 +630,66 @@
             setTimeout(function () {
                 if (self.active) {
                     self._hideIllustrationLayers();
-                    self._ensureBasemapOnBottom();
+                    self._ensureDisasterRasterOrder();
                 }
             }, 1200);
+        },
+
+        _ensureTsunamiOverlay: function () {
+            var map = this._deps.MapModule._map;
+            if (!map) return;
+            try {
+                if (!map.getSource('disaster-tsunami')) {
+                    map.addSource('disaster-tsunami', {
+                        type: 'raster',
+                        tiles: [TSUNAMI_TILE_URL],
+                        tileSize: 256,
+                        attribution: '© 国土地理院 ハザードマップポータルサイト',
+                        maxzoom: 17
+                    });
+                }
+                if (!map.getLayer('disaster-tsunami-layer')) {
+                    map.addLayer({
+                        id: 'disaster-tsunami-layer',
+                        type: 'raster',
+                        source: 'disaster-tsunami',
+                        paint: { 'raster-opacity': 0.58 },
+                        layout: { visibility: 'none' }
+                    });
+                }
+                this._ensureDisasterRasterOrder();
+                this._setTsunamiLayerVisible(this._tsunamiLayerOn);
+            } catch (e) {
+                console.warn('[DisasterMode] tsunami overlay', e);
+            }
+        },
+
+        _setTsunamiLayerVisible: function (visible) {
+            var map = this._deps && this._deps.MapModule && this._deps.MapModule._map;
+            if (!map || !map.getLayer('disaster-tsunami-layer')) {
+                this._tsunamiLayerOn = !!visible;
+                return;
+            }
+            this._tsunamiLayerOn = !!visible;
+            try {
+                map.setLayoutProperty(
+                    'disaster-tsunami-layer',
+                    'visibility',
+                    this._tsunamiLayerOn ? 'visible' : 'none'
+                );
+            } catch (e) { /* ignore */ }
+            this._syncTsunamiUI();
+        },
+
+        _syncTsunamiUI: function () {
+            var btn = document.getElementById('disaster-tsunami-toggle');
+            if (btn) {
+                btn.classList.toggle('active', this._tsunamiLayerOn);
+                btn.textContent = this._tsunamiLayerOn ? '津波浸水域 ON' : '津波浸水域 OFF';
+                btn.setAttribute('aria-pressed', this._tsunamiLayerOn ? 'true' : 'false');
+            }
+            var meta = document.getElementById('disaster-tsunami-meta');
+            if (meta) meta.hidden = !this._tsunamiLayerOn;
         },
 
         _layerBeforeId: function () {
@@ -632,16 +718,25 @@
             });
         },
 
-        _ensureBasemapOnBottom: function () {
+        _ensureDisasterRasterOrder: function () {
             var map = this._deps.MapModule._map;
-            if (!map || !map.getLayer('disaster-basemap-layer')) return;
+            if (!map) return;
             try {
-                map.setLayoutProperty('disaster-basemap-layer', 'visibility', 'visible');
-                // 背景の直後＝最背面付近へ（マーカー HTML は別レイヤなので影響なし）
-                if (map.getLayer('illustration-sky-bg')) {
-                    map.moveLayer('disaster-basemap-layer', this._layerBeforeId());
+                if (map.getLayer('disaster-basemap-layer')) {
+                    map.setLayoutProperty('disaster-basemap-layer', 'visibility', 'visible');
+                    if (map.getLayer('illustration-sky-bg')) {
+                        map.moveLayer('disaster-basemap-layer', this._layerBeforeId());
+                    }
+                }
+                if (map.getLayer('disaster-basemap-layer') && map.getLayer('disaster-tsunami-layer')) {
+                    map.moveLayer('disaster-basemap-layer', 'disaster-tsunami-layer');
                 }
             } catch (e) { /* ignore */ }
+        },
+
+        /** @deprecated 互換用 */
+        _ensureBasemapOnBottom: function () {
+            this._ensureDisasterRasterOrder();
         },
 
         _resumeIllustration: function () {
@@ -659,6 +754,9 @@
 
             if (map.getLayer('disaster-basemap-layer')) {
                 try { map.setLayoutProperty('disaster-basemap-layer', 'visibility', 'none'); } catch (e) { /* ignore */ }
+            }
+            if (map.getLayer('disaster-tsunami-layer')) {
+                try { map.setLayoutProperty('disaster-tsunami-layer', 'visibility', 'none'); } catch (e) { /* ignore */ }
             }
             ['day', 'sunset', 'night'].forEach(function (key) {
                 var lid = 'illustration-map-layer-' + key;
@@ -934,8 +1032,37 @@
                 '<div class="disaster-filters" id="disaster-filters">' +
                 '<div class="disaster-filter-row" id="disaster-type-filters"></div>' +
                 '<div class="disaster-filter-row" id="disaster-hazard-filters"></div>' +
+                '<div class="disaster-filter-row disaster-layer-row">' +
+                '<button type="button" class="disaster-chip tsunami-layer" id="disaster-tsunami-toggle" ' +
+                'aria-pressed="false">津波浸水域 OFF</button>' +
+                '</div>' +
+                '<div class="disaster-tsunami-meta" id="disaster-tsunami-meta" hidden>' +
+                '<p class="disaster-tsunami-note">' +
+                '静岡県津波浸水想定（平成27年8月公表）。下田市ハザードマップと同系統の県公表想定です。' +
+                '市配布のハザードマップは基準水位（せり上がり込み）表示のため、浸水深の色分けは一致しない場合があります。' +
+                '</p>' +
+                '<div class="disaster-tsunami-legend" id="disaster-tsunami-legend"></div>' +
+                '<p class="disaster-tsunami-source">' +
+                '<a href="https://www.city.shimoda.shizuoka.jp/category/010500bousai_tishiki/120138.html" ' +
+                'target="_blank" rel="noopener">下田市津波ハザードマップ</a>' +
+                ' · <a href="https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html" ' +
+                'target="_blank" rel="noopener">出典：ハザードマップポータルサイト</a>' +
+                '</p></div>' +
                 '</div>';
             document.body.appendChild(banner);
+
+            var tsunamiBtn = document.getElementById('disaster-tsunami-toggle');
+            if (tsunamiBtn) {
+                tsunamiBtn.onclick = function () { DisasterMode.toggleTsunamiLayer(); };
+            }
+            var legendEl = document.getElementById('disaster-tsunami-legend');
+            if (legendEl) {
+                legendEl.innerHTML = TSUNAMI_LEGEND.map(function (item) {
+                    return '<span class="disaster-tsunami-legend-item">' +
+                        '<span class="disaster-tsunami-swatch" style="background:' + item.color + '"></span>' +
+                        escapeText(item.label) + '</span>';
+                }).join('');
+            }
 
             var typeRow = document.getElementById('disaster-type-filters');
             [
