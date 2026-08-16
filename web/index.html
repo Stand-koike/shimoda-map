@@ -1696,6 +1696,8 @@
             -webkit-overflow-scrolling: touch;
             scrollbar-width: none;
         }
+        #disaster-hazard-filters { display: none; }
+        #disaster-hazard-filters.is-visible { display: flex; }
         .disaster-filter-row::-webkit-scrollbar { display: none; }
         .disaster-chip {
             flex: 0 0 auto;
@@ -1790,6 +1792,33 @@
             color: #00838F;
             white-space: nowrap;
             padding-top: 1px;
+        }
+        .disaster-card-head-right {
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .disaster-card-detail-btn {
+            flex-shrink: 0;
+            width: 28px;
+            height: 28px;
+            border: none;
+            border-radius: 50%;
+            background: #f0f4f4;
+            color: #00838F;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 13px;
+            padding: 0;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+        }
+        .disaster-card-detail-btn:active { transform: scale(0.95); }
+        .slide-card.disaster-card.active .disaster-card-detail-btn {
+            background: #00838F;
+            color: #fff;
         }
         .disaster-card-hazards, .disaster-detail-hazards {
             display: flex;
@@ -1960,6 +1989,11 @@
             }
             body.disaster-mode .disaster-card-dist {
                 font-size: 11px;
+            }
+            body.disaster-mode .disaster-card-detail-btn {
+                width: 26px;
+                height: 26px;
+                font-size: 12px;
             }
             body.disaster-mode .disaster-card-kind {
                 font-size: 11px;
