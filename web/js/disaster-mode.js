@@ -217,7 +217,14 @@
         },
 
         setTypeFilter: function (type) {
-            this._typeFilter = type || 'all';
+            type = type || 'all';
+            if (type !== 'place' && this._hazardFilter) {
+                this._hazardFilter = null;
+                if (this._tsunamiLayerOn) {
+                    this._setTsunamiLayerVisible(false);
+                }
+            }
+            this._typeFilter = type;
             this._renderAll();
             this._syncFilterChips();
         },
@@ -1144,11 +1151,24 @@
                     self._buildCardKindHtml(fac, lang) +
                     '<div class="disaster-card-head">' +
                     '<div class="disaster-card-title">' + escapeText(fac.name || '') + '</div>' +
+                    '<div class="disaster-card-head-right">' +
                     (distText
                         ? '<div class="disaster-card-dist">' + escapeText(distText) + '</div>'
                         : '') +
-                    '</div>' +
+                    '<button type="button" class="disaster-card-detail-btn" aria-label="' +
+                    escapeText(lang === 'ja' ? '詳細' : 'Details') + '">' +
+                    '<i class="fas fa-circle-info" aria-hidden="true"></i></button>' +
+                    '</div></div>' +
                     self._buildCardHazardsHtml(fac);
+
+                var detailBtn = card.querySelector('.disaster-card-detail-btn');
+                if (detailBtn) {
+                    detailBtn.addEventListener('click', function (e) {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        self.selectFacility(fac, { openDetail: true });
+                    });
+                }
                 container.appendChild(card);
             });
         },
@@ -1381,6 +1401,10 @@
                     : DisasterMode._hazardFilter === key;
                 b.classList.toggle('active', active);
             });
+            var hazRow = document.getElementById('disaster-hazard-filters');
+            if (hazRow) {
+                hazRow.classList.toggle('is-visible', DisasterMode._typeFilter === 'place');
+            }
         },
 
         _syncSortHint: function () {
