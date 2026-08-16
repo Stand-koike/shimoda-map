@@ -125,6 +125,7 @@
             document.body.classList.remove('disaster-mode');
             this._setTsunamiLayerVisible(false);
             this._tsunamiLayerOn = false;
+            this.closeTsunamiInfo(null, true);
             this._clearMarkers();
             this._selectedId = null;
             this._restoreMapFromDisaster();
@@ -179,7 +180,17 @@
         toggleTsunamiLayer: function () {
             if (!this.active) return;
             this._setTsunamiLayerVisible(!this._tsunamiLayerOn);
-            this._syncTsunamiUI();
+        },
+
+        openTsunamiInfo: function () {
+            var overlay = document.getElementById('disaster-tsunami-info-overlay');
+            if (overlay) overlay.classList.add('open');
+        },
+
+        closeTsunamiInfo: function (e, force) {
+            if (e && e.target && e.target.id !== 'disaster-tsunami-info-overlay' && !force) return;
+            var overlay = document.getElementById('disaster-tsunami-info-overlay');
+            if (overlay) overlay.classList.remove('open');
         },
 
         selectFacility: function (fac) {
@@ -685,11 +696,10 @@
             var btn = document.getElementById('disaster-tsunami-toggle');
             if (btn) {
                 btn.classList.toggle('active', this._tsunamiLayerOn);
-                btn.textContent = this._tsunamiLayerOn ? '津波浸水域 ON' : '津波浸水域 OFF';
                 btn.setAttribute('aria-pressed', this._tsunamiLayerOn ? 'true' : 'false');
+                btn.title = this._tsunamiLayerOn ? '津波浸水域を非表示' : '津波浸水域を表示';
+                btn.setAttribute('aria-label', btn.title);
             }
-            var meta = document.getElementById('disaster-tsunami-meta');
-            if (meta) meta.hidden = !this._tsunamiLayerOn;
         },
 
         _layerBeforeId: function () {
@@ -1032,31 +1042,63 @@
                 '<div class="disaster-filters" id="disaster-filters">' +
                 '<div class="disaster-filter-row" id="disaster-type-filters"></div>' +
                 '<div class="disaster-filter-row" id="disaster-hazard-filters"></div>' +
-                '<div class="disaster-filter-row disaster-layer-row">' +
-                '<button type="button" class="disaster-chip tsunami-layer" id="disaster-tsunami-toggle" ' +
-                'aria-pressed="false">津波浸水域 OFF</button>' +
-                '</div>' +
-                '<div class="disaster-tsunami-meta" id="disaster-tsunami-meta" hidden>' +
-                '<p class="disaster-tsunami-note">' +
-                '静岡県津波浸水想定（平成27年8月公表）。下田市ハザードマップと同系統の県公表想定です。' +
-                '市配布のハザードマップは基準水位（せり上がり込み）表示のため、浸水深の色分けは一致しない場合があります。' +
-                '</p>' +
-                '<div class="disaster-tsunami-legend" id="disaster-tsunami-legend"></div>' +
-                '<p class="disaster-tsunami-source">' +
-                '<a href="https://www.city.shimoda.shizuoka.jp/category/010500bousai_tishiki/120138.html" ' +
-                'target="_blank" rel="noopener">下田市津波ハザードマップ</a>' +
-                ' · <a href="https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html" ' +
-                'target="_blank" rel="noopener">出典：ハザードマップポータルサイト</a>' +
-                '</p></div>' +
                 '</div>';
             document.body.appendChild(banner);
 
-            var tsunamiBtn = document.getElementById('disaster-tsunami-toggle');
-            if (tsunamiBtn) {
+            var mapControls = document.querySelector('.map-controls');
+            if (mapControls && !document.getElementById('disaster-tsunami-toggle')) {
+                var infoBtn = document.createElement('button');
+                infoBtn.type = 'button';
+                infoBtn.id = 'disaster-tsunami-info-btn';
+                infoBtn.className = 'btn-control btn-tsunami-info disaster-map-btn';
+                infoBtn.title = '津波浸水域の凡例・出典';
+                infoBtn.setAttribute('aria-label', '津波浸水域の凡例・出典');
+                infoBtn.innerHTML = '<i class="fas fa-circle-info"></i>';
+                infoBtn.onclick = function () { DisasterMode.openTsunamiInfo(); };
+
+                var tsunamiBtn = document.createElement('button');
+                tsunamiBtn.type = 'button';
+                tsunamiBtn.id = 'disaster-tsunami-toggle';
+                tsunamiBtn.className = 'btn-control btn-tsunami disaster-map-btn';
+                tsunamiBtn.setAttribute('aria-pressed', 'false');
+                tsunamiBtn.title = '津波浸水域を表示';
+                tsunamiBtn.setAttribute('aria-label', '津波浸水域を表示');
+                tsunamiBtn.innerHTML = '<i class="fas fa-water"></i>';
                 tsunamiBtn.onclick = function () { DisasterMode.toggleTsunamiLayer(); };
+
+                mapControls.insertBefore(infoBtn, mapControls.firstChild);
+                mapControls.insertBefore(tsunamiBtn, mapControls.firstChild);
             }
+
+            if (!document.getElementById('disaster-tsunami-info-overlay')) {
+                var infoOverlay = document.createElement('div');
+                infoOverlay.className = 'modal-overlay';
+                infoOverlay.id = 'disaster-tsunami-info-overlay';
+                infoOverlay.onclick = function (e) { DisasterMode.closeTsunamiInfo(e); };
+                infoOverlay.innerHTML =
+                    '<div class="modal-content disaster-tsunami-info-card" onclick="event.stopPropagation()">' +
+                    '<button class="modal-close-btn" type="button" id="disaster-tsunami-info-close">' +
+                    '<i class="fas fa-times"></i></button>' +
+                    '<h3>津波浸水域</h3>' +
+                    '<p class="disaster-tsunami-note">' +
+                    '静岡県津波浸水想定（平成27年8月公表）。下田市ハザードマップと同系統の県公表想定です。' +
+                    '市配布のハザードマップは基準水位（せり上がり込み）表示のため、浸水深の色分けは一致しない場合があります。' +
+                    '</p>' +
+                    '<div class="disaster-tsunami-legend" id="disaster-tsunami-legend"></div>' +
+                    '<p class="disaster-tsunami-source">' +
+                    '<a href="https://www.city.shimoda.shizuoka.jp/category/010500bousai_tishiki/120138.html" ' +
+                    'target="_blank" rel="noopener">下田市津波ハザードマップ</a>' +
+                    ' · <a href="https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html" ' +
+                    'target="_blank" rel="noopener">出典：ハザードマップポータルサイト</a>' +
+                    '</p></div>';
+                document.body.appendChild(infoOverlay);
+                document.getElementById('disaster-tsunami-info-close').onclick = function () {
+                    DisasterMode.closeTsunamiInfo(null, true);
+                };
+            }
+
             var legendEl = document.getElementById('disaster-tsunami-legend');
-            if (legendEl) {
+            if (legendEl && !legendEl.innerHTML) {
                 legendEl.innerHTML = TSUNAMI_LEGEND.map(function (item) {
                     return '<span class="disaster-tsunami-legend-item">' +
                         '<span class="disaster-tsunami-swatch" style="background:' + item.color + '"></span>' +

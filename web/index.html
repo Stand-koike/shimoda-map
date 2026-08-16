@@ -576,6 +576,67 @@
         .btn-control:active { transform: scale(0.9); }
         .btn-gps   { background: linear-gradient(135deg, #FFAB91, #FF5722); }
         .btn-reset { background: linear-gradient(135deg, #80DEEA, #00ACC1); }
+        .disaster-map-btn { display: none; }
+        body.disaster-mode .disaster-map-btn { display: flex; }
+        .btn-tsunami {
+            background: linear-gradient(135deg, #80CBC4, #00838F);
+        }
+        .btn-tsunami.active,
+        .btn-tsunami[aria-pressed="true"] {
+            background: linear-gradient(135deg, #00838F, #004D40);
+            box-shadow: 0 0 0 3px rgba(0, 131, 143, 0.45), var(--shadow-soft);
+        }
+        .btn-tsunami-info {
+            width: 40px;
+            height: 40px;
+            font-size: 15px;
+            background: linear-gradient(135deg, #90A4AE, #607D8B);
+        }
+        #disaster-tsunami-info-overlay {
+            z-index: 10055;
+        }
+        .disaster-tsunami-info-card {
+            max-width: 420px;
+            padding: 18px 16px 16px;
+        }
+        .disaster-tsunami-info-card h3 {
+            margin: 0 0 10px;
+            font-size: 16px;
+            color: var(--color-text-main);
+        }
+        .disaster-tsunami-info-card .disaster-tsunami-note {
+            margin: 0 0 10px;
+            font-size: 12px;
+            line-height: 1.5;
+            color: var(--color-text-sub);
+        }
+        .disaster-tsunami-info-card .disaster-tsunami-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px 8px;
+            margin-bottom: 10px;
+        }
+        .disaster-tsunami-info-card .disaster-tsunami-legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            white-space: nowrap;
+        }
+        .disaster-tsunami-info-card .disaster-tsunami-swatch {
+            width: 12px;
+            height: 12px;
+            border-radius: 2px;
+            border: 1px solid rgba(0, 0, 0, 0.15);
+            flex-shrink: 0;
+        }
+        .disaster-tsunami-info-card .disaster-tsunami-source {
+            margin: 0;
+            font-size: 12px;
+        }
+        .disaster-tsunami-info-card .disaster-tsunami-source a {
+            color: var(--color-primary);
+        }
 
         /* ============================================================
            CARD PANEL
@@ -1645,47 +1706,6 @@
             background: var(--haz, #FFF8E1);
             border-color: transparent;
             color: #fff;
-        }
-        .disaster-chip.tsunami-layer.active {
-            background: #00838F;
-            border-color: #00838F;
-            color: #fff;
-        }
-        .disaster-layer-row { margin-top: 2px; }
-        .disaster-tsunami-meta {
-            margin-top: 8px;
-            padding-top: 8px;
-            border-top: 1px solid rgba(255, 248, 225, 0.2);
-            font-size: 11px;
-            line-height: 1.45;
-            opacity: 0.92;
-        }
-        .disaster-tsunami-meta[hidden] { display: none !important; }
-        .disaster-tsunami-note { margin: 0 0 6px; }
-        .disaster-tsunami-legend {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 4px 8px;
-            margin-bottom: 6px;
-        }
-        .disaster-tsunami-legend-item {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            font-size: 10px;
-            white-space: nowrap;
-        }
-        .disaster-tsunami-swatch {
-            width: 12px;
-            height: 12px;
-            border-radius: 2px;
-            border: 1px solid rgba(0, 0, 0, 0.15);
-            flex-shrink: 0;
-        }
-        .disaster-tsunami-source { margin: 0; }
-        .disaster-tsunami-source a {
-            color: #FFE082;
-            text-decoration: underline;
         }
         body.disaster-mode #news-ticker-wrapper { display: none !important; }
         body.disaster-mode #tab-filter,
