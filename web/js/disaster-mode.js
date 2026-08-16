@@ -916,11 +916,29 @@
                 maxBounds: cfg.maxBounds || null,
                 minZoom: cfg.minZoom
             };
+
+            var narrow = typeof window !== 'undefined' && window.innerWidth < 768;
+            var zoom = narrow ? DISASTER_DEFAULT_ZOOM_MOBILE : DISASTER_DEFAULT_ZOOM;
+            var center = Array.isArray(cfg.center) ? cfg.center.slice() : [138.9479213, 34.6745551];
+
+            // すでに取得済みで下田圏内の現在地があれば、そこを起点にする
+            if (this._hasUsableUserLocation()) {
+                var user = this._getUserCoords();
+                if (user) center = [user.lng, user.lat];
+            }
+
             try {
                 map.setMaxBounds(null);
                 map.setMinZoom(11);
                 map.setMaxBounds(DISASTER_BOUNDS);
-                map.easeTo({ bearing: 0, pitch: 0, duration: 600 });
+                map.easeTo({
+                    center: center,
+                    zoom: zoom,
+                    bearing: 0,
+                    pitch: 0,
+                    duration: 700,
+                    essential: true
+                });
             } catch (e) {
                 console.warn('[DisasterMode] camera', e);
             }
