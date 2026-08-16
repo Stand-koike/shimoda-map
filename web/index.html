@@ -4031,7 +4031,13 @@ const MapModule = {
                     DisasterMode._renderAll();
                 }
             },
-            err => console.log('[GPS]', err.message),
+            err => {
+                console.log('[GPS]', err.message);
+                State.userLocationAccuracy = null;
+                if (typeof DisasterMode !== 'undefined' && DisasterMode.isActive()) {
+                    DisasterMode._renderAll();
+                }
+            },
             { enableHighAccuracy: true }
         );
     }
