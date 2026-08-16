@@ -22,6 +22,9 @@
     ];
 
     var DISASTER_BOUNDS = [[138.86, 34.63], [138.99, 34.77]];
+    /** 災害時モード入場時の既定ズーム（通常の initZoom 15.6 より広域） */
+    var DISASTER_DEFAULT_ZOOM = 12.8;
+    var DISASTER_DEFAULT_ZOOM_MOBILE = 12.4;
     /** 下田周辺とみなす余白（度）。圏外の現在地は距離表示・距離順ソートに使わない */
     var DISASTER_BOUNDS_PAD = 0.12;
     /** この精度より粗い GPS は距離順に使わない（メートル） */
