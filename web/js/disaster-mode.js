@@ -22,6 +22,9 @@
     ];
 
     var DISASTER_BOUNDS = [[138.86, 34.63], [138.99, 34.77]];
+    /** 災害時モード入場時の既定ズーム（通常の initZoom 15.6 より広域） */
+    var DISASTER_DEFAULT_ZOOM = 12.8;
+    var DISASTER_DEFAULT_ZOOM_MOBILE = 12.4;
     /** 下田周辺とみなす余白（度）。圏外の現在地は距離表示・距離順ソートに使わない */
     var DISASTER_BOUNDS_PAD = 0.12;
     /** この精度より粗い GPS は距離順に使わない（メートル） */
@@ -913,11 +916,29 @@
                 maxBounds: cfg.maxBounds || null,
                 minZoom: cfg.minZoom
             };
+
+            var narrow = typeof window !== 'undefined' && window.innerWidth < 768;
+            var zoom = narrow ? DISASTER_DEFAULT_ZOOM_MOBILE : DISASTER_DEFAULT_ZOOM;
+            var center = Array.isArray(cfg.center) ? cfg.center.slice() : [138.9479213, 34.6745551];
+
+            // すでに取得済みで下田圏内の現在地があれば、そこを起点にする
+            if (this._hasUsableUserLocation()) {
+                var user = this._getUserCoords();
+                if (user) center = [user.lng, user.lat];
+            }
+
             try {
                 map.setMaxBounds(null);
                 map.setMinZoom(11);
                 map.setMaxBounds(DISASTER_BOUNDS);
-                map.easeTo({ bearing: 0, pitch: 0, duration: 600 });
+                map.easeTo({
+                    center: center,
+                    zoom: zoom,
+                    bearing: 0,
+                    pitch: 0,
+                    duration: 700,
+                    essential: true
+                });
             } catch (e) {
                 console.warn('[DisasterMode] camera', e);
             }
