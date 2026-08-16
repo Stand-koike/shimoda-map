@@ -197,6 +197,7 @@
             if (!fac) return;
             var deps = this._deps;
             this._selectedId = fac.id;
+            this.closeDetail(null, true);
             this._highlightCards();
             this._highlightMarkers();
             if (deps.UIModule && deps.UIModule.expandCardsSheetIfCollapsed) {
@@ -210,7 +211,6 @@
                     essential: true
                 });
             }
-            this.openDetail(fac);
         },
 
         openDetail: function (fac) {
@@ -868,7 +868,7 @@
 
         _renderAll: function () {
             if (!this.active) return;
-            var list = this._filtered();
+            var list = this._sortByDistanceFromUser(this._filtered());
             this._renderMarkers(list);
             this._renderCards(list);
             this._syncFilterChips();
@@ -876,6 +876,48 @@
             if (countEl) {
                 countEl.textContent = String(list.length);
             }
+        },
+
+        _getUserCoords: function () {
+            var State = this._deps && this._deps.State;
+            if (!State || !State.userLocationMarker) return null;
+            try {
+                var ll = State.userLocationMarker.getLngLat();
+                if (!ll || !Number.isFinite(ll.lng) || !Number.isFinite(ll.lat)) return null;
+                return { lng: ll.lng, lat: ll.lat };
+            } catch (e) {
+                return null;
+            }
+        },
+
+        _distanceMeters: function (lng1, lat1, lng2, lat2) {
+            var R = 6371000;
+            var toRad = function (deg) { return deg * Math.PI / 180; };
+            var dLat = toRad(lat2 - lat1);
+            var dLng = toRad(lng2 - lng1);
+            var a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                Math.sin(dLng / 2) * Math.sin(dLng / 2);
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        },
+
+        _sortByDistanceFromUser: function (list) {
+            var user = this._getUserCoords();
+            if (!user) return list.slice();
+            var self = this;
+            return list.slice().sort(function (a, b) {
+                var da = (Number.isFinite(a.lat) && Number.isFinite(a.lng))
+                    ? self._distanceMeters(user.lng, user.lat, a.lng, a.lat) : Infinity;
+                var db = (Number.isFinite(b.lat) && Number.isFinite(b.lng))
+                    ? self._distanceMeters(user.lng, user.lat, b.lng, b.lat) : Infinity;
+                return da - db;
+            });
+        },
+
+        _formatDistance: function (meters) {
+            if (!Number.isFinite(meters)) return '';
+            if (meters < 1000) return Math.round(meters) + 'm';
+            return (meters / 1000).toFixed(1) + 'km';
         },
 
         _clearMarkers: function () {
@@ -940,6 +982,7 @@
             }
 
             var self = this;
+            var user = this._getUserCoords();
             list.forEach(function (fac) {
                 var card = document.createElement('div');
                 var cardKindClass = fac.kind === 'aed' ? ' is-aed'
@@ -973,8 +1016,17 @@
                     chips = '<div class="disaster-card-notes">' + escapeText(fac.notes) + '</div>';
                 }
 
+                var distHtml = '';
+                if (user && Number.isFinite(fac.lat) && Number.isFinite(fac.lng)) {
+                    distHtml = '<div class="disaster-card-dist">' +
+                        escapeText(self._formatDistance(
+                            self._distanceMeters(user.lng, user.lat, fac.lng, fac.lat)
+                        )) + '</div>';
+                }
+
                 card.innerHTML =
                     '<div class="disaster-card-badge">' + kind + '</div>' +
+                    distHtml +
                     '<div class="card-info disaster-card-info">' +
                     '<div class="card-title">' + escapeText(fac.name) + '</div>' +
                     '<div class="disaster-card-addr"><i class="fas fa-map-marker-alt"></i> ' +
