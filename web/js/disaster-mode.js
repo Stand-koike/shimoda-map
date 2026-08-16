@@ -193,11 +193,16 @@
             if (overlay) overlay.classList.remove('open');
         },
 
-        selectFacility: function (fac) {
+        selectFacility: function (fac, opts) {
             if (!fac) return;
+            opts = opts || {};
             var deps = this._deps;
             this._selectedId = fac.id;
-            this.closeDetail(null, true);
+            if (opts.openDetail) {
+                this.openDetail(fac);
+            } else {
+                this.closeDetail(null, true);
+            }
             this._highlightCards();
             this._highlightMarkers();
             if (deps.UIModule && deps.UIModule.expandCardsSheetIfCollapsed) {
@@ -211,6 +216,20 @@
                     essential: true
                 });
             }
+        },
+
+        _buildCardHazardsHtml: function (fac) {
+            if (fac.kind !== 'place' || !fac.hazards || !fac.hazards.length) {
+                return '';
+            }
+            return '<div class="disaster-card-hazards">' +
+                fac.hazards.map(function (h) {
+                    var meta = HAZARD_META.find(function (m) { return m.key === h; });
+                    var bg = (meta && meta.color) || '#546E7A';
+                    return '<span class="disaster-hazard-chip" style="background:' + bg + '">' +
+                        escapeText(h) + '</span>';
+                }).join('') +
+                '</div>';
         },
 
         openDetail: function (fac) {
@@ -949,7 +968,7 @@
                     '<span class="disaster-marker-icon">' + iconHtml + '</span></div>';
                 el.addEventListener('click', function (e) {
                     e.stopPropagation();
-                    self.selectFacility(fac);
+                    self.selectFacility(fac, { openDetail: true });
                 });
                 var marker = new mapboxgl.Marker({ element: el, anchor: 'bottom' })
                     .setLngLat([fac.lng, fac.lat])
@@ -992,47 +1011,21 @@
                 card.id = 'card-' + fac.id;
                 card.onclick = function () { self.selectFacility(fac); };
 
-                var kind = fac.kind === 'aed'
-                    ? 'AED'
-                    : fac.kind === 'place'
-                        ? (lang === 'ja' ? '緊急避難場所' : 'Evac. site')
-                        : (lang === 'ja' ? '避難所' : 'Shelter');
-
-                var chips = '';
-                if (fac.kind === 'place' && fac.hazards && fac.hazards.length) {
-                    chips = '<div class="disaster-card-hazards">' +
-                        fac.hazards.slice(0, 4).map(function (h) {
-                            var meta = HAZARD_META.find(function (m) { return m.key === h; });
-                            var bg = (meta && meta.color) || '#546E7A';
-                            return '<span class="disaster-hazard-chip" style="background:' + bg + '">' + h + '</span>';
-                        }).join('') +
-                        (fac.hazards.length > 4
-                            ? '<span class="disaster-hazard-more">+' + (fac.hazards.length - 4) + '</span>'
-                            : '') +
-                        '</div>';
-                } else if (fac.kind === 'aed' && fac.source) {
-                    chips = '<div class="disaster-card-notes">' + escapeText(fac.source) + '</div>';
-                } else if (fac.notes) {
-                    chips = '<div class="disaster-card-notes">' + escapeText(fac.notes) + '</div>';
-                }
-
-                var distHtml = '';
+                var distText = '';
                 if (user && Number.isFinite(fac.lat) && Number.isFinite(fac.lng)) {
-                    distHtml = '<div class="disaster-card-dist">' +
-                        escapeText(self._formatDistance(
-                            self._distanceMeters(user.lng, user.lat, fac.lng, fac.lat)
-                        )) + '</div>';
+                    distText = self._formatDistance(
+                        self._distanceMeters(user.lng, user.lat, fac.lng, fac.lat)
+                    );
                 }
 
                 card.innerHTML =
-                    '<div class="disaster-card-badge">' + kind + '</div>' +
-                    distHtml +
-                    '<div class="card-info disaster-card-info">' +
-                    '<div class="card-title">' + escapeText(fac.name) + '</div>' +
-                    '<div class="disaster-card-addr"><i class="fas fa-map-marker-alt"></i> ' +
-                    escapeText(fac.address || '') + '</div>' +
-                    chips +
-                    '</div>';
+                    '<div class="disaster-card-head">' +
+                    '<div class="disaster-card-title">' + escapeText(fac.name || '') + '</div>' +
+                    (distText
+                        ? '<div class="disaster-card-dist">' + escapeText(distText) + '</div>'
+                        : '') +
+                    '</div>' +
+                    self._buildCardHazardsHtml(fac);
                 container.appendChild(card);
             });
         },
