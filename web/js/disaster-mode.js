@@ -50,6 +50,11 @@
         place: '<i class="fas fa-person-running"></i>',
         shelter: '<i class="fas fa-house-chimney"></i>'
     };
+    var CARD_KIND_BADGE_STYLE = {
+        'is-place': 'background:#C62828;color:#fff',
+        'is-shelter': 'background:#1565C0;color:#fff',
+        'is-aed': 'background:#00897B;color:#fff'
+    };
 
     function escapeText(s) {
         return String(s == null ? '' : s)
@@ -309,7 +314,9 @@
         },
 
         _buildCardKindHtml: function (fac, lang) {
-            return '<span class="disaster-card-kind ' + this._getKindClass(fac) + '">' +
+            var kindClass = this._getKindClass(fac);
+            var style = CARD_KIND_BADGE_STYLE[kindClass] || CARD_KIND_BADGE_STYLE['is-shelter'];
+            return '<span class="disaster-card-kind ' + kindClass + '" style="' + style + '">' +
                 escapeText(this._getKindLabel(fac, lang, true)) +
                 '</span>';
         },
