@@ -1089,13 +1089,13 @@
                 }
 
                 card.innerHTML =
+                    self._buildCardKindHtml(fac, lang) +
                     '<div class="disaster-card-head">' +
                     '<div class="disaster-card-title">' + escapeText(fac.name || '') + '</div>' +
                     (distText
                         ? '<div class="disaster-card-dist">' + escapeText(distText) + '</div>'
                         : '') +
                     '</div>' +
-                    self._buildCardKindHtml(fac, lang) +
                     self._buildCardHazardsHtml(fac);
                 container.appendChild(card);
             });
