@@ -1760,6 +1760,14 @@
             background: #E0F2F1; color: #00695C;
         }
         .disaster-card-info { padding: 0 !important; width: 100%; }
+        .disaster-card-dist {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 11px;
+            font-weight: 700;
+            color: #00838F;
+        }
         .disaster-card-addr {
             font-size: 11px; color: #607D8B; margin-top: 4px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -3930,6 +3938,9 @@ const MapModule = {
                         .setLngLat(coords).addTo(this._map);
                 } else {
                     State.userLocationMarker.setLngLat(coords);
+                }
+                if (typeof DisasterMode !== 'undefined' && DisasterMode.isActive()) {
+                    DisasterMode._renderAll();
                 }
             },
             err => console.log('[GPS]', err.message),
