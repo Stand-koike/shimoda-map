@@ -1676,6 +1676,17 @@
             font-size: 12px;
             opacity: 0.85;
         }
+        .disaster-sort-hint {
+            flex: 1 1 100%;
+            font-size: 11px;
+            line-height: 1.35;
+            opacity: 0.78;
+        }
+        .disaster-sort-hint.is-distance { opacity: 0.72; }
+        .disaster-sort-hint.is-default {
+            opacity: 0.95;
+            color: #FFE082;
+        }
         .disaster-filters { display: flex; flex-direction: column; gap: 6px; }
         .disaster-filter-row {
             display: flex;
@@ -2210,6 +2221,7 @@ const State = {
     allSpots:            [],
     activeMarkers:       [],
     userLocationMarker:  null,
+    userLocationAccuracy: null,
     currentSpot:         null,
     newsList:            [],
     currentNewsIndex:    0,
@@ -4003,6 +4015,9 @@ const MapModule = {
         navigator.geolocation.watchPosition(
             pos => {
                 const coords = [pos.coords.longitude, pos.coords.latitude];
+                State.userLocationAccuracy = Number.isFinite(pos.coords.accuracy)
+                    ? pos.coords.accuracy
+                    : null;
                 if (!State.userLocationMarker) {
                     const el = document.createElement('div');
                     el.className = 'my-location-marker';

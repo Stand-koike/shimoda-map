@@ -22,6 +22,10 @@
     ];
 
     var DISASTER_BOUNDS = [[138.86, 34.63], [138.99, 34.77]];
+    /** 下田周辺とみなす余白（度）。圏外の現在地は距離表示・距離順ソートに使わない */
+    var DISASTER_BOUNDS_PAD = 0.12;
+    /** この精度より粗い GPS は距離順に使わない（メートル） */
+    var MAX_USER_LOCATION_ACCURACY_M = 5000;
 
     /** 静岡県津波浸水想定（GSI ハザードマップタイル・下田市と同系統の県公表想定） */
     var TSUNAMI_TILE_URL =
@@ -972,10 +976,11 @@
 
         _renderAll: function () {
             if (!this.active) return;
-            var list = this._sortByDistanceFromUser(this._filtered());
+            var list = this._sortFacilities(this._filtered());
             this._renderMarkers(list);
             this._renderCards(list);
             this._syncFilterChips();
+            this._syncSortHint();
             var countEl = document.getElementById('disaster-count');
             if (countEl) {
                 countEl.textContent = String(list.length);
@@ -994,6 +999,55 @@
             }
         },
 
+        _hasUsableUserLocation: function () {
+            var user = this._getUserCoords();
+            if (!user) return false;
+
+            var State = this._deps && this._deps.State;
+            if (State && Number.isFinite(State.userLocationAccuracy) &&
+                State.userLocationAccuracy > MAX_USER_LOCATION_ACCURACY_M) {
+                return false;
+            }
+
+            var b = DISASTER_BOUNDS;
+            var pad = DISASTER_BOUNDS_PAD;
+            return user.lng >= b[0][0] - pad && user.lng <= b[1][0] + pad &&
+                user.lat >= b[0][1] - pad && user.lat <= b[1][1] + pad;
+        },
+
+        _compareFacilitiesDefault: function (a, b) {
+            var na = Number(a.no);
+            var nb = Number(b.no);
+            if (Number.isFinite(na) && Number.isFinite(nb) && na !== nb) return na - nb;
+
+            var kindOrder = { place: 0, shelter: 1, aed: 2 };
+            var ka = kindOrder[a.kind] != null ? kindOrder[a.kind] : 9;
+            var kb = kindOrder[b.kind] != null ? kindOrder[b.kind] : 9;
+            if (ka !== kb) return ka - kb;
+
+            return String(a.name || '').localeCompare(String(b.name || ''), 'ja');
+        },
+
+        _facilityDistanceMeters: function (fac, user) {
+            if (!user || !Number.isFinite(fac.lat) || !Number.isFinite(fac.lng)) return Infinity;
+            return this._distanceMeters(user.lng, user.lat, fac.lng, fac.lat);
+        },
+
+        _sortFacilities: function (list) {
+            if (!this._hasUsableUserLocation()) {
+                return list.slice().sort(this._compareFacilitiesDefault.bind(this));
+            }
+
+            var self = this;
+            var user = this._getUserCoords();
+            return list.slice().sort(function (a, b) {
+                var da = self._facilityDistanceMeters(a, user);
+                var db = self._facilityDistanceMeters(b, user);
+                if (da !== db) return da - db;
+                return self._compareFacilitiesDefault(a, b);
+            });
+        },
+
         _distanceMeters: function (lng1, lat1, lng2, lat2) {
             var R = 6371000;
             var toRad = function (deg) { return deg * Math.PI / 180; };
@@ -1006,16 +1060,7 @@
         },
 
         _sortByDistanceFromUser: function (list) {
-            var user = this._getUserCoords();
-            if (!user) return list.slice();
-            var self = this;
-            return list.slice().sort(function (a, b) {
-                var da = (Number.isFinite(a.lat) && Number.isFinite(a.lng))
-                    ? self._distanceMeters(user.lng, user.lat, a.lng, a.lat) : Infinity;
-                var db = (Number.isFinite(b.lat) && Number.isFinite(b.lng))
-                    ? self._distanceMeters(user.lng, user.lat, b.lng, b.lat) : Infinity;
-                return da - db;
-            });
+            return this._sortFacilities(list);
         },
 
         _formatDistance: function (meters) {
@@ -1080,7 +1125,7 @@
             }
 
             var self = this;
-            var user = this._getUserCoords();
+            var user = this._hasUsableUserLocation() ? this._getUserCoords() : null;
             list.forEach(function (fac) {
                 var card = document.createElement('div');
                 card.className = 'slide-card disaster-card ' + self._getKindClass(fac) +
@@ -1091,7 +1136,7 @@
                 var distText = '';
                 if (user && Number.isFinite(fac.lat) && Number.isFinite(fac.lng)) {
                     distText = self._formatDistance(
-                        self._distanceMeters(user.lng, user.lat, fac.lng, fac.lat)
+                        self._facilityDistanceMeters(fac, user)
                     );
                 }
 
@@ -1171,6 +1216,7 @@
                 '<div class="disaster-banner-main">' +
                 '<strong>災害時モード</strong>' +
                 '<span class="disaster-banner-sub">店舗非表示 · 避難施設・AED · <span id="disaster-count">0</span>件</span>' +
+                '<span class="disaster-sort-hint" id="disaster-sort-hint"></span>' +
                 '</div>' +
                 '<div class="disaster-filters" id="disaster-filters">' +
                 '<div class="disaster-filter-row" id="disaster-type-filters"></div>' +
@@ -1335,6 +1381,21 @@
                     : DisasterMode._hazardFilter === key;
                 b.classList.toggle('active', active);
             });
+        },
+
+        _syncSortHint: function () {
+            var el = document.getElementById('disaster-sort-hint');
+            if (!el) return;
+            var lang = this._getLang();
+            if (this._hasUsableUserLocation()) {
+                el.textContent = lang === 'ja' ? '現在地から近い順' : 'Nearest first';
+                el.className = 'disaster-sort-hint is-distance';
+            } else {
+                el.textContent = lang === 'ja'
+                    ? '現在地未取得 — 一覧番号順'
+                    : 'Location unavailable — sorted by list no.';
+                el.className = 'disaster-sort-hint is-default';
+            }
         },
 
         _bindHooks: function () {
