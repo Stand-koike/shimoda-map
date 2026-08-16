@@ -28,6 +28,7 @@
         active: false,
         places: [],
         shelters: [],
+        aed: [],
         _markers: [],
         _hazardFilter: null,
         _typeFilter: 'all',
@@ -177,13 +178,16 @@
             if (!overlay || !fac) return;
             var lang = (this._deps.State && this._deps.State.language) || 'ja';
             var isPlace = fac.kind === 'place';
-            var kindLabel = isPlace
-                ? (lang === 'ja' ? '指定緊急避難場所' : 'Emergency Evacuation Site')
-                : (lang === 'ja' ? '指定避難所' : 'Evacuation Shelter');
+            var isAed = fac.kind === 'aed';
+            var kindLabel = isAed
+                ? (lang === 'ja' ? 'AED設置場所' : 'AED')
+                : isPlace
+                    ? (lang === 'ja' ? '指定緊急避難場所' : 'Emergency Evacuation Site')
+                    : (lang === 'ja' ? '指定避難所' : 'Evacuation Shelter');
 
             document.getElementById('disaster-detail-kind').textContent = kindLabel;
             document.getElementById('disaster-detail-kind').className =
-                'disaster-detail-kind ' + (isPlace ? 'is-place' : 'is-shelter');
+                'disaster-detail-kind ' + (isAed ? 'is-aed' : (isPlace ? 'is-place' : 'is-shelter'));
             document.getElementById('disaster-detail-title').textContent = fac.name || '';
             document.getElementById('disaster-detail-address').textContent = fac.address || '—';
 
@@ -221,12 +225,28 @@
             }
 
             var notesEl = document.getElementById('disaster-detail-notes');
-            var notes = fac.notes || fac.capacity || '';
+            var notes = isAed ? (fac.source || '') : (fac.notes || fac.capacity || '');
+            if (isAed && fac.detailUrl) {
+                notes = (notes ? notes + '\n' : '') + fac.detailUrl;
+            }
             if (notes) {
                 notesEl.style.display = 'block';
-                notesEl.textContent = notes;
+                if (isAed && fac.detailUrl) {
+                    notesEl.innerHTML = (fac.source ? escapeText(fac.source) + '<br>' : '') +
+                        '<a href="' + escapeText(fac.detailUrl) + '" target="_blank" rel="noopener">' +
+                        escapeText(fac.detailUrl) + '</a>';
+                } else {
+                    notesEl.textContent = notes;
+                }
             } else {
                 notesEl.style.display = 'none';
+            }
+
+            var sourceEl = document.getElementById('disaster-detail-source');
+            if (sourceEl) {
+                sourceEl.textContent = isAed
+                    ? (lang === 'ja' ? '出典: いつもNAVI（ゼンリンデータコム）' : 'Source: ZENRIN / its-mo.com')
+                    : (lang === 'ja' ? '出典: 下田市 令和6年4月1日現在' : 'Source: Shimoda City (Apr 2024)');
             }
 
             var nav = document.getElementById('disaster-detail-nav');
@@ -255,12 +275,22 @@
             this._loadAttempted = true;
             var self = this;
             this._fetchSheets()
-                .then(function (ok) {
-                    if (ok) return;
-                    return self._fetchLocalJson();
+                .then(function () {
+                    var tasks = [];
+                    if (self.places.length === 0 && self.shelters.length === 0) {
+                        tasks.push(self._fetchLocalEvacJson());
+                    }
+                    if (self.aed.length === 0) {
+                        tasks.push(self._fetchLocalAedJson());
+                    }
+                    if (!tasks.length) return null;
+                    return Promise.all(tasks);
                 })
                 .catch(function () {
-                    return self._fetchLocalJson();
+                    return Promise.all([
+                        self._fetchLocalEvacJson(),
+                        self._fetchLocalAedJson()
+                    ]);
                 })
                 .then(function () {
                     if (self.active) self._renderAll();
@@ -275,21 +305,26 @@
             }
             var placesName = CONFIG.EVAC_PLACES_SHEET || 'evacuation_places';
             var sheltersName = CONFIG.EVAC_SHELTERS_SHEET || 'evacuation_shelters';
+            var aedName = CONFIG.AED_SHEET || 'aed_locations';
 
             return Promise.all([
                 this._gvizSheet(placesName),
-                this._gvizSheet(sheltersName)
-            ]).then(function (pair) {
-                var placeRows = pair[0];
-                var shelterRows = pair[1];
-                if (!placeRows && !shelterRows) return false;
+                this._gvizSheet(sheltersName),
+                this._gvizSheet(aedName)
+            ]).then(function (triple) {
+                var placeRows = triple[0];
+                var shelterRows = triple[1];
+                var aedRows = triple[2];
                 if (placeRows && self._isEvacPlacesTable(placeRows)) {
                     self.places = self._parsePlaceRows(placeRows);
                 }
                 if (shelterRows && self._isEvacSheltersTable(shelterRows)) {
                     self.shelters = self._parseShelterRows(shelterRows);
                 }
-                return self.places.length > 0 || self.shelters.length > 0;
+                if (aedRows && self._isAedTable(aedRows)) {
+                    self.aed = self._parseAedRows(aedRows);
+                }
+                return self.places.length > 0 || self.shelters.length > 0 || self.aed.length > 0;
             }).catch(function (err) {
                 console.warn('[DisasterMode] sheets 取得失敗', err);
                 return false;
@@ -312,6 +347,13 @@
 
         _isEvacSheltersTable: function (table) {
             return this._isEvacPlacesTable(table);
+        },
+
+        _isAedTable: function (table) {
+            var a = this._colLabel(table, 0);
+            var c = this._colLabel(table, 2);
+            var g = this._colLabel(table, 6);
+            return a === 'id' && c === 'name' && g === 'category';
         },
 
         _gvizSheet: function (sheetName) {
@@ -419,7 +461,36 @@
             return out;
         },
 
-        _fetchLocalJson: function () {
+        _parseAedRows: function (table) {
+            var rows = table.rows || [];
+            var out = [];
+            var self = this;
+            rows.forEach(function (row) {
+                var id = String(self._cell(row, 0) || '').trim();
+                var name = String(self._cell(row, 2) || '').trim();
+                var lat = Number(self._cell(row, 3));
+                var lng = Number(self._cell(row, 4));
+                var hidden = self._cell(row, 9);
+                if (hidden === false || hidden === 'FALSE' || hidden === 'false') return;
+                if (!name || !Number.isFinite(lat) || !Number.isFinite(lng)) return;
+                out.push({
+                    id: id || ('aed-' + out.length),
+                    no: self._cell(row, 1),
+                    name: name,
+                    lat: lat,
+                    lng: lng,
+                    address: String(self._cell(row, 5) || ''),
+                    category: String(self._cell(row, 6) || 'AED設置場所'),
+                    source: String(self._cell(row, 7) || ''),
+                    detailUrl: String(self._cell(row, 8) || ''),
+                    hazards: [],
+                    kind: 'aed'
+                });
+            });
+            return out;
+        },
+
+        _fetchLocalEvacJson: function () {
             var self = this;
             return fetch('public/data/disaster_evac.json?_=' + Date.now(), { cache: 'no-store' })
                 .then(function (r) {
@@ -436,9 +507,38 @@
                     return true;
                 })
                 .catch(function (err) {
-                    console.warn('[DisasterMode] local JSON 失敗', err);
+                    console.warn('[DisasterMode] local evac JSON 失敗', err);
                     return false;
                 });
+        },
+
+        _fetchLocalAedJson: function () {
+            var self = this;
+            if (self.aed.length > 0) return Promise.resolve(true);
+            return fetch('public/data/disaster_aed.json?_=' + Date.now(), { cache: 'no-store' })
+                .then(function (r) {
+                    if (!r.ok) throw new Error('local aed json ' + r.status);
+                    return r.json();
+                })
+                .then(function (data) {
+                    self.aed = (data.aed || []).map(function (a) {
+                        return Object.assign({}, a, { kind: 'aed' });
+                    });
+                    return self.aed.length > 0;
+                })
+                .catch(function (err) {
+                    console.warn('[DisasterMode] local AED JSON 失敗', err);
+                    return false;
+                });
+        },
+
+        /** @deprecated 互換用 */
+        _fetchLocalJson: function () {
+            var self = this;
+            return Promise.all([
+                self._fetchLocalEvacJson(),
+                self._fetchLocalAedJson()
+            ]).then(function () { return true; });
         },
 
         // ---- map visuals ----
@@ -634,8 +734,12 @@
             if (this._typeFilter === 'all' || this._typeFilter === 'shelter') {
                 list = list.concat(this.shelters);
             }
+            if (this._typeFilter === 'all' || this._typeFilter === 'aed') {
+                list = list.concat(this.aed);
+            }
             if (this._hazardFilter) {
                 list = list.filter(function (f) {
+                    if (f.kind === 'aed') return true;
                     if (f.kind === 'shelter') {
                         // 避難所は備考の「〜を除く」で除外判定
                         return !self._shelterExcludedFor(f, self._hazardFilter);
@@ -679,16 +783,20 @@
 
             list.forEach(function (fac) {
                 if (!Number.isFinite(fac.lat) || !Number.isFinite(fac.lng)) return;
+                var kindClass = fac.kind === 'aed' ? ' is-aed'
+                    : (fac.kind === 'place' ? ' is-place' : ' is-shelter');
+                var iconHtml = fac.kind === 'aed'
+                    ? '<i class="fas fa-heart-pulse"></i>'
+                    : (fac.kind === 'place'
+                        ? '<i class="fas fa-person-running"></i>'
+                        : '<i class="fas fa-house-chimney"></i>');
                 var el = document.createElement('div');
-                el.className = 'disaster-marker' +
-                    (fac.kind === 'place' ? ' is-place' : ' is-shelter') +
+                el.className = 'disaster-marker' + kindClass +
                     (self._selectedId === fac.id ? ' active' : '');
                 el.title = fac.name;
                 el.innerHTML =
                     '<div class="disaster-marker-inner">' +
-                    '<span class="disaster-marker-icon">' +
-                    (fac.kind === 'place' ? '<i class="fas fa-person-running"></i>' : '<i class="fas fa-house-chimney"></i>') +
-                    '</span></div>';
+                    '<span class="disaster-marker-icon">' + iconHtml + '</span></div>';
                 el.addEventListener('click', function (e) {
                     e.stopPropagation();
                     self.selectFacility(fac);
@@ -726,15 +834,18 @@
             var self = this;
             list.forEach(function (fac) {
                 var card = document.createElement('div');
-                card.className = 'slide-card disaster-card' +
-                    (fac.kind === 'place' ? ' is-place' : ' is-shelter') +
+                var cardKindClass = fac.kind === 'aed' ? ' is-aed'
+                    : (fac.kind === 'place' ? ' is-place' : ' is-shelter');
+                card.className = 'slide-card disaster-card' + cardKindClass +
                     (self._selectedId === fac.id ? ' active' : '');
                 card.id = 'card-' + fac.id;
                 card.onclick = function () { self.selectFacility(fac); };
 
-                var kind = fac.kind === 'place'
-                    ? (lang === 'ja' ? '緊急避難場所' : 'Evac. site')
-                    : (lang === 'ja' ? '避難所' : 'Shelter');
+                var kind = fac.kind === 'aed'
+                    ? 'AED'
+                    : fac.kind === 'place'
+                        ? (lang === 'ja' ? '緊急避難場所' : 'Evac. site')
+                        : (lang === 'ja' ? '避難所' : 'Shelter');
 
                 var chips = '';
                 if (fac.kind === 'place' && fac.hazards && fac.hazards.length) {
@@ -748,6 +859,8 @@
                             ? '<span class="disaster-hazard-more">+' + (fac.hazards.length - 4) + '</span>'
                             : '') +
                         '</div>';
+                } else if (fac.kind === 'aed' && fac.source) {
+                    chips = '<div class="disaster-card-notes">' + escapeText(fac.source) + '</div>';
                 } else if (fac.notes) {
                     chips = '<div class="disaster-card-notes">' + escapeText(fac.notes) + '</div>';
                 }
@@ -816,7 +929,7 @@
             banner.innerHTML =
                 '<div class="disaster-banner-main">' +
                 '<strong>災害時モード</strong>' +
-                '<span class="disaster-banner-sub">店舗非表示 · 避難施設のみ · <span id="disaster-count">0</span>件</span>' +
+                '<span class="disaster-banner-sub">店舗非表示 · 避難施設・AED · <span id="disaster-count">0</span>件</span>' +
                 '</div>' +
                 '<div class="disaster-filters" id="disaster-filters">' +
                 '<div class="disaster-filter-row" id="disaster-type-filters"></div>' +
@@ -828,7 +941,8 @@
             [
                 { id: 'all', label: 'すべて' },
                 { id: 'place', label: '緊急避難場所' },
-                { id: 'shelter', label: '避難所' }
+                { id: 'shelter', label: '避難所' },
+                { id: 'aed', label: 'AED' }
             ].forEach(function (t) {
                 var b = document.createElement('button');
                 b.type = 'button';
@@ -875,7 +989,7 @@
                 '<p class="disaster-detail-line" id="disaster-detail-phone-wrap">' +
                 '<i class="fas fa-phone"></i> <a id="disaster-detail-phone" href="#"></a></p>' +
                 '<p class="disaster-detail-notes" id="disaster-detail-notes"></p>' +
-                '<p class="disaster-detail-source">出典: 下田市 令和6年4月1日現在</p>' +
+                '<p class="disaster-detail-source" id="disaster-detail-source">出典: 下田市 令和6年4月1日現在</p>' +
                 '<a id="disaster-detail-nav" class="btn-nav-large" target="_blank" rel="noopener">' +
                 '<i class="fas fa-location-arrow"></i> Google Mapsで経路</a>' +
                 '</div></div>';
