@@ -37,3 +37,6 @@ meta/*
 # 編集バックアップ
 * - コピー.*
 * - copy.*
+
+# GDAL 等のラスタ副ファイル（座標は config.js / .wld を正とする）
+*.aux.xml
