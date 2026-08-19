@@ -1255,6 +1255,7 @@
                 el.innerHTML =
                     '<div class="disaster-marker-inner">' +
                     '<span class="disaster-marker-icon">' + self._getMarkerIconHtml(fac) + '</span></div>';
+                el.style.touchAction = 'manipulation';
                 el.addEventListener('click', function (e) {
                     e.stopPropagation();
                     self.selectFacility(fac, { openDetail: true });
@@ -1296,7 +1297,7 @@
                 card.className = 'slide-card disaster-card ' + self._getKindClass(fac) +
                     (self._selectedId === fac.id ? ' active' : '');
                 card.id = 'card-' + fac.id;
-                card.onclick = function () { self.selectFacility(fac); };
+                card.onclick = function () { self.selectFacility(fac, { openDetail: true }); };
 
                 var distText = '';
                 if (user && Number.isFinite(fac.lat) && Number.isFinite(fac.lng)) {
