@@ -11,14 +11,14 @@
     'use strict';
 
     var HAZARD_META = [
-        { key: '洪水', label: '洪水', color: '#1565C0' },
-        { key: '土砂', label: '土砂', color: '#6D4C41' },
-        { key: '高潮', label: '高潮', color: '#0277BD' },
-        { key: '地震', label: '地震', color: '#EF6C00' },
-        { key: '津波', label: '津波', color: '#00838F' },
-        { key: '火災', label: '火災', color: '#C62828' },
-        { key: '内水', label: '内水', color: '#4527A0' },
-        { key: '火山', label: '火山', color: '#AD1457' }
+        { key: '洪水', label: '洪水', labelEn: 'Flood', color: '#1565C0' },
+        { key: '土砂', label: '土砂', labelEn: 'Landslide', color: '#6D4C41' },
+        { key: '高潮', label: '高潮', labelEn: 'Storm surge', color: '#0277BD' },
+        { key: '地震', label: '地震', labelEn: 'Earthquake', color: '#EF6C00' },
+        { key: '津波', label: '津波', labelEn: 'Tsunami', color: '#00838F' },
+        { key: '火災', label: '火災', labelEn: 'Fire', color: '#C62828' },
+        { key: '内水', label: '内水', labelEn: 'Inland flood', color: '#4527A0' },
+        { key: '火山', label: '火山', labelEn: 'Volcanic', color: '#AD1457' }
     ];
 
     var DISASTER_BOUNDS = [[138.86, 34.63], [138.99, 34.77]];
@@ -34,24 +34,54 @@
     var TSUNAMI_TILE_URL =
         'https://disaportaldata.gsi.go.jp/raster/04_tsunami_newlegend_pref_data/22/{z}/{x}/{y}.png';
     var TSUNAMI_LEGEND = [
-        { label: '0.3m未満', color: '#FFFFB3' },
-        { label: '0.3〜0.5m', color: '#FFFF00' },
-        { label: '0.5〜1m', color: '#BFFF00' },
-        { label: '1〜3m', color: '#00FF00' },
-        { label: '3〜5m', color: '#00BFFF' },
-        { label: '5〜10m', color: '#0000FF' },
-        { label: '10〜20m', color: '#FF00FF' },
-        { label: '20m以上', color: '#800080' }
+        { label: '0.3m未満', labelEn: '< 0.3m', color: '#FFFFB3' },
+        { label: '0.3〜0.5m', labelEn: '0.3–0.5m', color: '#FFFF00' },
+        { label: '0.5〜1m', labelEn: '0.5–1m', color: '#BFFF00' },
+        { label: '1〜3m', labelEn: '1–3m', color: '#00FF00' },
+        { label: '3〜5m', labelEn: '3–5m', color: '#00BFFF' },
+        { label: '5〜10m', labelEn: '5–10m', color: '#0000FF' },
+        { label: '10〜20m', labelEn: '10–20m', color: '#FF00FF' },
+        { label: '20m以上', labelEn: '20m+', color: '#800080' }
     ];
 
     var HIDDEN_LAYER_IDS = ['spots', 'events', 'mikoshi', 'routes', 'areas'];
     var ILLUSTRATION_LAYER_KEYS = ['day', 'sunset', 'night'];
     var TYPE_FILTER_OPTIONS = [
-        { id: 'all', label: 'すべて' },
-        { id: 'place', label: '緊急避難場所' },
-        { id: 'shelter', label: '避難所' },
-        { id: 'aed', label: 'AED' }
+        { id: 'all', label: 'すべて', labelEn: 'All' },
+        { id: 'place', label: '緊急避難場所', labelEn: 'Emergency site' },
+        { id: 'shelter', label: '避難所', labelEn: 'Shelter' },
+        { id: 'aed', label: 'AED', labelEn: 'AED' }
     ];
+    var DISASTER_I18N = {
+        ja: {
+            modeTitle: '災害時モード',
+            bannerLead: '店舗非表示 · 避難施設・AED · ',
+            countUnit: '件',
+            hazardAll: '災害種:すべて',
+            tsunamiShow: '津波浸水域を表示',
+            tsunamiHide: '津波浸水域を非表示',
+            tsunamiInfo: '津波浸水域の凡例・出典',
+            tsunamiTitle: '津波浸水域',
+            tsunamiNote: '静岡県津波浸水想定（平成27年8月公表）。下田市ハザードマップと同系統の県公表想定です。市配布のハザードマップは基準水位（せり上がり込み）表示のため、浸水深の色分けは一致しない場合があります。',
+            tsunamiMapLink: '下田市津波ハザードマップ',
+            tsunamiSourceLink: '出典：ハザードマップポータルサイト',
+            navMaps: 'Google Mapsで経路'
+        },
+        en: {
+            modeTitle: 'Disaster Mode',
+            bannerLead: 'Stores hidden · Shelters & AED · ',
+            countUnit: ' sites',
+            hazardAll: 'All hazards',
+            tsunamiShow: 'Show tsunami inundation',
+            tsunamiHide: 'Hide tsunami inundation',
+            tsunamiInfo: 'Tsunami inundation legend and sources',
+            tsunamiTitle: 'Tsunami inundation',
+            tsunamiNote: 'Shizuoka Prefecture tsunami inundation estimate (published Aug 2015). Same official estimate family as the Shimoda City hazard map. City-distributed maps show reference water levels (including run-up), so inundation colors may not match.',
+            tsunamiMapLink: 'Shimoda City tsunami hazard map',
+            tsunamiSourceLink: 'Source: Hazard Map Portal',
+            navMaps: 'Directions in Google Maps'
+        }
+    };
     var MARKER_ICON_BY_KIND = {
         aed: '<i class="fas fa-heart-pulse"></i>',
         place: '<i class="fas fa-person-running"></i>',
@@ -80,13 +110,24 @@
         return (meta && meta.color) || '#546E7A';
     }
 
+    function localizedLabel(item, lang) {
+        if (lang && lang !== 'ja' && item && item.labelEn) return item.labelEn;
+        return (item && item.label) || '';
+    }
+
+    function hazardLabelFor(key, lang) {
+        var meta = HAZARD_META.find(function (m) { return m.key === key; });
+        if (!meta) return key;
+        return localizedLabel(meta, lang);
+    }
+
     function parseHazardsRaw(raw) {
         return String(raw || '').split(/[,、/|]/).map(function (s) { return s.trim(); }).filter(Boolean);
     }
 
-    function buildHazardChipHtml(key) {
+    function buildHazardChipHtml(key, lang) {
         return '<span class="disaster-hazard-chip" style="background:' + hazardColorFor(key) + '">' +
-            escapeText(key) + '</span>';
+            escapeText(hazardLabelFor(key, lang)) + '</span>';
     }
 
     var DisasterMode = {
@@ -199,6 +240,99 @@
 
         _getLang: function () {
             return (this._deps.State && this._deps.State.language) || 'ja';
+        },
+
+        _strings: function () {
+            var lang = this._getLang();
+            return DISASTER_I18N[lang] || DISASTER_I18N.ja;
+        },
+
+        /** 言語切替時。ボタン・バナー・フィルター等の表示だけ更新し、状態は変えない */
+        syncLanguage: function () {
+            this._syncToggleUI();
+            this._applyI18n();
+            this._syncTsunamiUI();
+            if (this.active) {
+                this._syncSortHint();
+                var overlay = document.getElementById('disaster-detail-overlay');
+                if (overlay && overlay.classList.contains('open') && this._selectedId) {
+                    var fac = this._findFacilityById(this._selectedId);
+                    if (fac) this.openDetail(fac);
+                }
+            }
+        },
+
+        _findFacilityById: function (id) {
+            if (!id) return null;
+            var lists = [this.places, this.shelters, this.aed];
+            for (var i = 0; i < lists.length; i++) {
+                var list = lists[i] || [];
+                for (var j = 0; j < list.length; j++) {
+                    if (list[j] && list[j].id === id) return list[j];
+                }
+            }
+            return null;
+        },
+
+        _applyI18n: function () {
+            var lang = this._getLang();
+            var s = this._strings();
+
+            var title = document.getElementById('disaster-banner-title');
+            if (title) title.textContent = s.modeTitle;
+            var lead = document.getElementById('disaster-banner-lead');
+            if (lead) lead.textContent = s.bannerLead;
+            var unit = document.getElementById('disaster-count-unit');
+            if (unit) unit.textContent = s.countUnit;
+
+            document.querySelectorAll('#disaster-type-filters .disaster-chip').forEach(function (b) {
+                var opt = TYPE_FILTER_OPTIONS.find(function (t) { return t.id === b.dataset.type; });
+                if (opt) b.textContent = localizedLabel(opt, lang);
+            });
+            document.querySelectorAll('#disaster-hazard-filters .disaster-chip').forEach(function (b) {
+                var key = b.dataset.hazard || '';
+                if (!key) {
+                    b.textContent = s.hazardAll;
+                    return;
+                }
+                b.textContent = hazardLabelFor(key, lang);
+            });
+
+            var tsunamiTitle = document.getElementById('disaster-tsunami-info-title');
+            if (tsunamiTitle) tsunamiTitle.textContent = s.tsunamiTitle;
+            var tsunamiNote = document.getElementById('disaster-tsunami-info-note');
+            if (tsunamiNote) tsunamiNote.textContent = s.tsunamiNote;
+            var tsunamiSource = document.getElementById('disaster-tsunami-info-source');
+            if (tsunamiSource) {
+                tsunamiSource.innerHTML =
+                    '<a href="https://www.city.shimoda.shizuoka.jp/category/010500bousai_tishiki/120138.html" ' +
+                    'target="_blank" rel="noopener">' + escapeText(s.tsunamiMapLink) + '</a>' +
+                    ' · <a href="https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html" ' +
+                    'target="_blank" rel="noopener">' + escapeText(s.tsunamiSourceLink) + '</a>';
+            }
+            this._renderTsunamiLegend();
+
+            var infoBtn = document.getElementById('disaster-tsunami-info-btn');
+            if (infoBtn) {
+                infoBtn.title = s.tsunamiInfo;
+                infoBtn.setAttribute('aria-label', s.tsunamiInfo);
+            }
+
+            var nav = document.getElementById('disaster-detail-nav');
+            if (nav) {
+                nav.innerHTML = '<i class="fas fa-location-arrow"></i> ' + escapeText(s.navMaps);
+            }
+        },
+
+        _renderTsunamiLegend: function () {
+            var legendEl = document.getElementById('disaster-tsunami-legend');
+            if (!legendEl) return;
+            var lang = this._getLang();
+            legendEl.innerHTML = TSUNAMI_LEGEND.map(function (item) {
+                return '<span class="disaster-tsunami-legend-item">' +
+                    '<span class="disaster-tsunami-swatch" style="background:' + item.color + '"></span>' +
+                    escapeText(localizedLabel(item, lang)) + '</span>';
+            }).join('');
         },
 
         _trackEvent: function (action) {
@@ -321,7 +455,7 @@
                 var chip = document.createElement('span');
                 chip.className = 'disaster-hazard-chip';
                 chip.style.background = hazardColorFor(h);
-                chip.textContent = h;
+                chip.textContent = hazardLabelFor(h, this._getLang());
                 container.appendChild(chip);
             });
             container.style.display = 'flex';
@@ -335,12 +469,12 @@
                 '</span>';
         },
 
-        _buildCardHazardsHtml: function (fac) {
+        _buildCardHazardsHtml: function (fac, lang) {
             if (fac.kind !== 'place' || !fac.hazards || !fac.hazards.length) {
                 return '';
             }
             return '<div class="disaster-card-hazards">' +
-                fac.hazards.map(buildHazardChipHtml).join('') +
+                fac.hazards.map(function (key) { return buildHazardChipHtml(key, lang); }).join('') +
                 '</div>';
         },
 
@@ -813,9 +947,10 @@
         _syncTsunamiUI: function () {
             var btn = document.getElementById('disaster-tsunami-toggle');
             if (btn) {
+                var s = this._strings();
                 btn.classList.toggle('active', this._tsunamiLayerOn);
                 btn.setAttribute('aria-pressed', this._tsunamiLayerOn ? 'true' : 'false');
-                btn.title = this._tsunamiLayerOn ? '津波浸水域を非表示' : '津波浸水域を表示';
+                btn.title = this._tsunamiLayerOn ? s.tsunamiHide : s.tsunamiShow;
                 btn.setAttribute('aria-label', btn.title);
             }
         },
@@ -1009,6 +1144,7 @@
             this._renderCards(list);
             this._syncFilterChips();
             this._syncSortHint();
+            this._applyI18n();
             var countEl = document.getElementById('disaster-count');
             if (countEl) {
                 countEl.textContent = String(list.length);
@@ -1180,7 +1316,7 @@
                     escapeText(lang === 'ja' ? '詳細' : 'Details') + '">' +
                     '<i class="fas fa-circle-info" aria-hidden="true"></i></button>' +
                     '</div></div>' +
-                    self._buildCardHazardsHtml(fac);
+                    self._buildCardHazardsHtml(fac, lang);
 
                 var detailBtn = card.querySelector('.disaster-card-detail-btn');
                 if (detailBtn) {
@@ -1223,6 +1359,7 @@
             this._injectFilterChips();
             this._injectDetailModal();
             this._syncFilterChips();
+            this.syncLanguage();
         },
 
         _injectDisasterToggleButton: function () {
@@ -1234,8 +1371,7 @@
             btn.id = 'tab-disaster';
             btn.type = 'button';
             btn.setAttribute('aria-pressed', 'false');
-            btn.innerHTML = '<i class="fas fa-house-flood-water"></i> <span id="disaster-btn-text">' +
-                (window.innerWidth < 768 ? '災害' : '災害時') + '</span>';
+            btn.innerHTML = '<i class="fas fa-house-flood-water"></i> <span id="disaster-btn-text"></span>';
             btn.onclick = function () { DisasterMode.toggle(); };
 
             var langBtn = document.getElementById('tab-lang');
@@ -1255,8 +1391,11 @@
             banner.className = 'disaster-banner';
             banner.innerHTML =
                 '<div class="disaster-banner-main">' +
-                '<strong>災害時モード</strong>' +
-                '<span class="disaster-banner-sub">店舗非表示 · 避難施設・AED · <span id="disaster-count">0</span>件</span>' +
+                '<strong id="disaster-banner-title"></strong>' +
+                '<span class="disaster-banner-sub">' +
+                '<span id="disaster-banner-lead"></span>' +
+                '<span id="disaster-count">0</span>' +
+                '<span id="disaster-count-unit"></span></span>' +
                 '<span class="disaster-sort-hint" id="disaster-sort-hint"></span>' +
                 '</div>' +
                 '<div class="disaster-filters" id="disaster-filters">' +
@@ -1274,8 +1413,8 @@
             infoBtn.type = 'button';
             infoBtn.id = 'disaster-tsunami-info-btn';
             infoBtn.className = 'btn-control btn-tsunami-info disaster-map-btn';
-            infoBtn.title = '津波浸水域の凡例・出典';
-            infoBtn.setAttribute('aria-label', '津波浸水域の凡例・出典');
+            infoBtn.title = '';
+            infoBtn.setAttribute('aria-label', '');
             infoBtn.innerHTML = '<i class="fas fa-circle-info"></i>';
             infoBtn.onclick = function () { DisasterMode.openTsunamiInfo(); };
 
@@ -1284,8 +1423,8 @@
             tsunamiBtn.id = 'disaster-tsunami-toggle';
             tsunamiBtn.className = 'btn-control btn-tsunami disaster-map-btn';
             tsunamiBtn.setAttribute('aria-pressed', 'false');
-            tsunamiBtn.title = '津波浸水域を表示';
-            tsunamiBtn.setAttribute('aria-label', '津波浸水域を表示');
+            tsunamiBtn.title = '';
+            tsunamiBtn.setAttribute('aria-label', '');
             tsunamiBtn.innerHTML = '<i class="fas fa-water"></i>';
             tsunamiBtn.onclick = function () { DisasterMode.toggleTsunamiLayer(); };
 
@@ -1304,31 +1443,14 @@
                 '<div class="modal-content disaster-tsunami-info-card" onclick="event.stopPropagation()">' +
                 '<button class="modal-close-btn" type="button" id="disaster-tsunami-info-close">' +
                 '<i class="fas fa-times"></i></button>' +
-                '<h3>津波浸水域</h3>' +
-                '<p class="disaster-tsunami-note">' +
-                '静岡県津波浸水想定（平成27年8月公表）。下田市ハザードマップと同系統の県公表想定です。' +
-                '市配布のハザードマップは基準水位（せり上がり込み）表示のため、浸水深の色分けは一致しない場合があります。' +
-                '</p>' +
+                '<h3 id="disaster-tsunami-info-title"></h3>' +
+                '<p class="disaster-tsunami-note" id="disaster-tsunami-info-note"></p>' +
                 '<div class="disaster-tsunami-legend" id="disaster-tsunami-legend"></div>' +
-                '<p class="disaster-tsunami-source">' +
-                '<a href="https://www.city.shimoda.shizuoka.jp/category/010500bousai_tishiki/120138.html" ' +
-                'target="_blank" rel="noopener">下田市津波ハザードマップ</a>' +
-                ' · <a href="https://disaportal.gsi.go.jp/hazardmap/copyright/opendata.html" ' +
-                'target="_blank" rel="noopener">出典：ハザードマップポータルサイト</a>' +
-                '</p></div>';
+                '<p class="disaster-tsunami-source" id="disaster-tsunami-info-source"></p></div>';
             document.body.appendChild(infoOverlay);
             document.getElementById('disaster-tsunami-info-close').onclick = function () {
                 DisasterMode.closeTsunamiInfo(null, true);
             };
-
-            var legendEl = document.getElementById('disaster-tsunami-legend');
-            if (legendEl) {
-                legendEl.innerHTML = TSUNAMI_LEGEND.map(function (item) {
-                    return '<span class="disaster-tsunami-legend-item">' +
-                        '<span class="disaster-tsunami-swatch" style="background:' + item.color + '"></span>' +
-                        escapeText(item.label) + '</span>';
-                }).join('');
-            }
         },
 
         _injectFilterChips: function () {
@@ -1338,7 +1460,7 @@
                 b.type = 'button';
                 b.className = 'disaster-chip';
                 b.dataset.type = t.id;
-                b.textContent = t.label;
+                b.textContent = t.label; // _applyI18n で言語に合わせて上書き
                 b.onclick = function () { DisasterMode.setTypeFilter(t.id); };
                 typeRow.appendChild(b);
             });
@@ -1382,8 +1504,7 @@
                 '<i class="fas fa-phone"></i> <a id="disaster-detail-phone" href="#"></a></p>' +
                 '<p class="disaster-detail-notes" id="disaster-detail-notes"></p>' +
                 '<p class="disaster-detail-source" id="disaster-detail-source">出典: 下田市 令和6年4月1日現在</p>' +
-                '<a id="disaster-detail-nav" class="btn-nav-large" target="_blank" rel="noopener">' +
-                '<i class="fas fa-location-arrow"></i> Google Mapsで経路</a>' +
+                '<a id="disaster-detail-nav" class="btn-nav-large" target="_blank" rel="noopener"></a>' +
                 '</div></div>';
             document.body.appendChild(detail);
             document.getElementById('disaster-detail-close').onclick = function () {
@@ -1405,9 +1526,20 @@
             btn.setAttribute('aria-pressed', this.active ? 'true' : 'false');
             var text = document.getElementById('disaster-btn-text');
             if (text) {
+                var lang = this._getLang();
                 var narrow = typeof window !== 'undefined' && window.innerWidth < 768;
-                if (this.active) text.textContent = narrow ? '災害ON' : '災害ON';
-                else text.textContent = narrow ? '災害' : '災害時';
+                var dict = this._deps && this._deps.CONFIG && this._deps.CONFIG.TRANSLATIONS
+                    && this._deps.CONFIG.TRANSLATIONS[lang];
+                if (this.active) {
+                    text.textContent = (dict && dict.disasterOn)
+                        || (lang === 'ja' ? '災害ON' : 'Disaster ON');
+                } else if (lang === 'ja') {
+                    text.textContent = narrow
+                        ? '災害'
+                        : ((dict && dict.disaster) || '災害時');
+                } else {
+                    text.textContent = (dict && dict.disaster) || 'Disaster';
+                }
             }
         },
 
