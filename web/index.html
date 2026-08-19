@@ -5215,12 +5215,12 @@ const App = {
         document.getElementById('layer-btn-text').innerText  = t('layers');
         const homeText = document.getElementById('home-btn-text');
         if (homeText) homeText.innerText = t('map');
-        const disasterText = document.getElementById('disaster-btn-text');
-        if (disasterText) {
-            const narrow = window.innerWidth < 768;
-            if (typeof DisasterMode !== 'undefined' && DisasterMode.isActive()) {
-                disasterText.innerText = t('disasterOn');
-            } else {
+        if (typeof DisasterMode !== 'undefined' && DisasterMode.syncLanguage) {
+            DisasterMode.syncLanguage();
+        } else {
+            const disasterText = document.getElementById('disaster-btn-text');
+            if (disasterText) {
+                const narrow = window.innerWidth < 768;
                 disasterText.innerText = narrow ? '災害' : t('disaster');
             }
         }
