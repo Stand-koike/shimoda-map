@@ -451,11 +451,12 @@
                 container.style.display = 'none';
                 return;
             }
+            var lang = this._getLang();
             hazards.forEach(function (h) {
                 var chip = document.createElement('span');
                 chip.className = 'disaster-hazard-chip';
                 chip.style.background = hazardColorFor(h);
-                chip.textContent = hazardLabelFor(h, this._getLang());
+                chip.textContent = hazardLabelFor(h, lang);
                 container.appendChild(chip);
             });
             container.style.display = 'flex';
