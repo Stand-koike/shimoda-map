@@ -1814,6 +1814,8 @@
             font-size: 13px;
             padding: 0;
             box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
         }
         .disaster-card-detail-btn:active { transform: scale(0.95); }
         .slide-card.disaster-card.active .disaster-card-detail-btn {
@@ -1996,9 +1998,10 @@
                 font-size: 11px;
             }
             body.disaster-mode .disaster-card-detail-btn {
-                width: 26px;
-                height: 26px;
-                font-size: 12px;
+                width: 36px;
+                height: 36px;
+                font-size: 14px;
+                touch-action: manipulation;
             }
             body.disaster-mode .disaster-card-kind {
                 font-size: 11px;
