@@ -1297,7 +1297,7 @@
                 card.className = 'slide-card disaster-card ' + self._getKindClass(fac) +
                     (self._selectedId === fac.id ? ' active' : '');
                 card.id = 'card-' + fac.id;
-                card.onclick = function () { self.selectFacility(fac, { openDetail: true }); };
+                card.onclick = function () { self.selectFacility(fac); };
 
                 var distText = '';
                 if (user && Number.isFinite(fac.lat) && Number.isFinite(fac.lng)) {
